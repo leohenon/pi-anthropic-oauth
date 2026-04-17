@@ -63,7 +63,6 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerProvider("anthropic", {
     baseUrl: "https://api.anthropic.com",
-    apiKey: "ANTHROPIC_MAX_API_KEY",
     api: "anthropic-messages",
     models,
     oauth: {

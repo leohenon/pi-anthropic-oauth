@@ -105,7 +105,11 @@ export function streamAnthropicOAuth(
     };
 
     try {
-      const apiKey = options?.apiKey ?? "";
+      const apiKey = options?.apiKey;
+      if (!apiKey) {
+        throw new Error("No Anthropic auth available. Run /login anthropic.");
+      }
+
       const isOAuth = isClaudeOAuthAccessToken(apiKey);
       const defaultHeaders = makeDefaultHeaders(isOAuth, options);
 

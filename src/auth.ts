@@ -152,7 +152,6 @@ export async function refreshAnthropicToken(
           grant_type: "refresh_token",
           client_id: CLIENT_ID,
           refresh_token: credentials.refresh,
-          scope: SCOPES,
         }),
       },
       "Token refresh",
