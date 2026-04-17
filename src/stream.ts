@@ -11,7 +11,7 @@ import {
   type SimpleStreamOptions,
   type StopReason,
 } from "@mariozechner/pi-ai";
-import { USER_AGENT } from "./auth.js";
+import { isClaudeOAuthAccessToken, USER_AGENT } from "./auth.js";
 import {
   convertPiMessagesToAnthropic,
   convertPiToolsToAnthropic,
@@ -106,7 +106,7 @@ export function streamAnthropicOAuth(
 
     try {
       const apiKey = options?.apiKey ?? "";
-      const isOAuth = true;
+      const isOAuth = isClaudeOAuthAccessToken(apiKey);
       const defaultHeaders = makeDefaultHeaders(isOAuth, options);
 
       if (isOAuth) defaultHeaders.authorization = `Bearer ${apiKey}`;

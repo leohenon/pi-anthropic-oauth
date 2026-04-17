@@ -1,58 +1,27 @@
 import { existsSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ProviderConfig } from "@mariozechner/pi-coding-agent";
+import {
+  AuthStorage,
+  ModelRegistry,
+  type ExtensionAPI,
+  type ProviderConfig,
+} from "@mariozechner/pi-coding-agent";
 import type { OAuthCredentials } from "@mariozechner/pi-ai";
 import { loginAnthropic, refreshAnthropicToken } from "./auth.js";
 import { streamAnthropicOAuth } from "./stream.js";
 
-const MODELS = [
-  {
-    id: "claude-opus-4-7",
-    name: "Claude Opus 4.7",
-    reasoning: true,
-    input: ["text", "image"] as ("text" | "image")[],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 1000000,
-    maxTokens: 128000,
-  },
-  {
-    id: "claude-opus-4-6",
-    name: "Claude Opus 4.6",
-    reasoning: true,
-    input: ["text", "image"] as ("text" | "image")[],
-    cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-    contextWindow: 1000000,
-    maxTokens: 128000,
-  },
-  {
-    id: "claude-sonnet-4-6",
-    name: "Claude Sonnet 4.6",
-    reasoning: true,
-    input: ["text", "image"] as ("text" | "image")[],
-    cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-    contextWindow: 1000000,
-    maxTokens: 64000,
-  },
-  {
-    id: "claude-haiku-4-5",
-    name: "Claude Haiku 4.5",
-    reasoning: true,
-    input: ["text", "image"] as ("text" | "image")[],
-    cost: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
-    contextWindow: 200000,
-    maxTokens: 64000,
-  },
-  {
-    id: "claude-opus-4-5-20251101",
-    name: "Claude Opus 4.5",
-    reasoning: true,
-    input: ["text", "image"] as ("text" | "image")[],
-    cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-    contextWindow: 200000,
-    maxTokens: 64000,
-  }
-];
+const DEFAULT_OPUS_4_7: NonNullable<ProviderConfig["models"]>[number] = {
+  id: "claude-opus-4-7",
+  name: "Claude Opus 4.7",
+  api: "anthropic-messages",
+  reasoning: true,
+  input: ["text", "image"],
+  cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+  contextWindow: 1000000,
+  maxTokens: 128000,
+  compat: undefined,
+};
 
 function ensureClaudeCodeSymlink() {
   const target = join(homedir(), ".pi");
@@ -64,13 +33,39 @@ function ensureClaudeCodeSymlink() {
   }
 }
 
+function getAnthropicModels(): NonNullable<ProviderConfig["models"]> {
+  const modelRegistry = ModelRegistry.create(AuthStorage.inMemory());
+  const models: NonNullable<ProviderConfig["models"]> = modelRegistry
+    .getAll()
+    .filter((model) => model.provider === "anthropic")
+    .map((model) => ({
+      id: model.id,
+      name: model.name,
+      api: model.api ?? "anthropic-messages",
+      reasoning: model.reasoning,
+      input: model.input,
+      cost: model.cost,
+      contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens,
+      compat: model.compat,
+    }));
+
+  if (!models.some((model) => model.id === DEFAULT_OPUS_4_7.id)) {
+    models.push(DEFAULT_OPUS_4_7);
+  }
+
+  return models;
+}
+
 export default function (pi: ExtensionAPI) {
   ensureClaudeCodeSymlink();
+  const models = getAnthropicModels();
+
   pi.registerProvider("anthropic", {
     baseUrl: "https://api.anthropic.com",
     apiKey: "ANTHROPIC_MAX_API_KEY",
-    api: "anthropic-max-api",
-    models: [...MODELS],
+    api: "anthropic-messages",
+    models,
     oauth: {
       name: "Claude Pro/Max",
       usesCallbackServer: true,

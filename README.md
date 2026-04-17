@@ -27,9 +27,35 @@ Claude Pro/Max
 
 ## Notes
 
+- uses Pi's built-in Anthropic model list
 - sends Claude Code-like OAuth headers
 - rewrites Pi system identity where needed
 - auto-creates `~/.Claude Code` → `~/.pi` symlink
+
+## Custom models
+
+To add another Anthropic model, create `~/.pi/agent/models.json`:
+
+```json
+{
+  "providers": {
+    "anthropic": {
+      "baseUrl": "https://api.anthropic.com",
+      "apiKey": "REQUIRED_BY_PI_FOR_CUSTOM_MODELS",
+      "api": "anthropic-messages",
+      "models": [
+        {
+          "id": "your-model-id",
+          "name": "Your Model Name"
+        }
+      ]
+    }
+  }
+}
+```
+
+> [!NOTE]
+> Pi requires `baseUrl`, `apiKey`, and `api` when defining custom models in `models.json`. With this extension, requests normally authenticate through Claude Pro/Max OAuth after `/login anthropic`, so `apiKey` is present to satisfy Pi's config requirements and does not need to be a valid Anthropic API key.
 
 ## License
 
