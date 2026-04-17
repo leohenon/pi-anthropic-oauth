@@ -1,13 +1,20 @@
-# Pi Anthropic OAuth
+# pi-anthropic-oauth
 
 [![npm](https://img.shields.io/npm/v/pi-anthropic-oauth?style=flat-square&logo=npm&logoColor=white&label=npm&color=7c3aed)](https://www.npmjs.com/package/pi-anthropic-oauth) [![node](https://img.shields.io/badge/node-%3E%3D18-7c3aed?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
 
-Claude Pro/Max OAuth extension for Pi.
+Use Claude Pro/Max in Pi with browser OAuth.
 
-> [!WARNING]
-> Use this at your own risk. This may go against Anthropic's terms.
+## Features
 
-## Install
+- Claude Pro/Max login from `/login anthropic`
+- Automatic token refresh
+- Claude Code-compatible OAuth headers and prompt shaping
+- No API key or extra usage needed.
+- Uses Pi's Anthropic model registry
+- Adds Claude Opus 4.7 by default
+- Auto-creates `~/.Claude Code` → `~/.pi` symlink when missing
+
+## Quick start
 
 ```bash
 pi install npm:pi-anthropic-oauth
@@ -25,14 +32,13 @@ Choose:
 Claude Pro/Max
 ```
 
-## Notes
+> [!WARNING]
+> Use at your own risk. This may go against Anthropic's terms.
 
-- uses Pi's built-in Anthropic model list
-- sends Claude Code-like OAuth headers
-- rewrites Pi system identity where needed
-- auto-creates `~/.Claude Code` → `~/.pi` symlink
+> [!NOTE]
+> Anthropic auth changes are closely monitored for quick compatibility updates.
 
-## Custom models
+## Extra models
 
 To add another Anthropic model, create `~/.pi/agent/models.json`:
 
@@ -56,6 +62,12 @@ To add another Anthropic model, create `~/.pi/agent/models.json`:
 
 > [!NOTE]
 > Pi requires `baseUrl`, `apiKey`, and `api` when defining custom models in `models.json`. With this extension, requests normally authenticate through Claude Pro/Max OAuth after `/login anthropic`, so `apiKey` is present to satisfy Pi's config requirements and does not need to be a valid Anthropic API key.
+
+## Troubleshooting
+
+- Re-run `/login anthropic` if auth looks stale
+- If local callback login does not complete, paste the final callback URL or `code#state` when prompted
+- If something breaks, please open an issue with your Pi version, extension version, and error output
 
 ## License
 
