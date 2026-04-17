@@ -1,6 +1,6 @@
 {
   "name": "pi-anthropic-oauth",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Claude Pro/Max OAuth extension for Pi",
   "type": "module",
   "license": "MIT",
