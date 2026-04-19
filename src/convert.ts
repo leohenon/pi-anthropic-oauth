@@ -73,10 +73,33 @@ export function convertPiMessagesToAnthropic(
     return candidate;
   };
 
+  // Anthropic requires every `tool_use` block to be IMMEDIATELY followed by a
+  // user message containing a matching `tool_result` for the same id. Aborted
+  // / errored assistant turns or partial histories can leave orphan tool_uses
+  // behind, which causes the API to reject the next request with:
+  //   `tool_use` ids were found without `tool_result` blocks immediately after
+  // We track outstanding tool_use ids from the last assistant message and
+  // synthesize "No result provided" results for any that aren't satisfied by
+  // the time we emit the next user message (or finish the history).
+  let pendingToolUseIds: string[] = [];
+
+  const flushPendingToolResults = () => {
+    if (pendingToolUseIds.length === 0) return;
+    const syntheticBlocks: ContentBlockParam[] = pendingToolUseIds.map((id) => ({
+      type: "tool_result",
+      tool_use_id: id,
+      content: "No result provided",
+      is_error: true,
+    }));
+    params.push({ role: "user", content: syntheticBlocks });
+    pendingToolUseIds = [];
+  };
+
   for (let i = 0; i < messages.length; i++) {
     const message = messages[i];
 
     if (message.role === "user") {
+      flushPendingToolResults();
       if (typeof message.content === "string") {
         if (message.content.trim()) params.push({ role: "user", content: sanitizeSurrogates(message.content) });
       } else {
@@ -94,45 +117,85 @@ export function convertPiMessagesToAnthropic(
     }
 
     if (message.role === "assistant") {
+      // Skip aborted / errored assistant turns entirely. Their content may
+      // include partial tool_use blocks that will never get a matching
+      // tool_result, which would poison every subsequent request.
+      if (message.stopReason === "aborted" || message.stopReason === "error") {
+        continue;
+      }
+
+      // Defensive: if the previous assistant turn had unresolved tool_uses and
+      // the next message is another assistant (shouldn't normally happen),
+      // patch them up before emitting the new assistant turn.
+      flushPendingToolResults();
+
       const blocks: ContentBlockParam[] = [];
+      const emittedToolUseIds: string[] = [];
       for (const block of message.content) {
         if (block.type === "text" && block.text.trim()) {
           blocks.push({ type: "text", text: sanitizeSurrogates(block.text) });
         } else if (block.type === "toolCall") {
+          const anthropicId = getAnthropicToolId(block.id);
           blocks.push({
             type: "tool_use",
-            id: getAnthropicToolId(block.id),
+            id: anthropicId,
             name: isOAuth ? toClaudeCodeToolName(block.name) : block.name,
-            input: block.arguments,
+            input: block.arguments ?? {},
           });
+          emittedToolUseIds.push(anthropicId);
         }
       }
-      if (blocks.length > 0) params.push({ role: "assistant", content: blocks });
+      if (blocks.length > 0) {
+        params.push({ role: "assistant", content: blocks });
+        pendingToolUseIds = emittedToolUseIds;
+      }
       continue;
     }
 
     if (message.role === "toolResult") {
-      const toolResults = [
-        {
-          type: "tool_result" as const,
-          tool_use_id: getAnthropicToolId(message.toolCallId),
-          content: convertToolResultContentToAnthropic(message.content),
-          is_error: message.isError,
-        },
-      ];
+      const toolResults: ContentBlockParam[] = [];
+      const satisfiedIds = new Set<string>();
+
+      const firstId = getAnthropicToolId(message.toolCallId);
+      toolResults.push({
+        type: "tool_result",
+        tool_use_id: firstId,
+        content: convertToolResultContentToAnthropic(message.content),
+        is_error: message.isError,
+      });
+      satisfiedIds.add(firstId);
 
       let j = i + 1;
       while (j < messages.length && messages[j]?.role === "toolResult") {
         const nextMessage = messages[j] as ToolResultMessage;
+        const nextId = getAnthropicToolId(nextMessage.toolCallId);
         toolResults.push({
-          type: "tool_result" as const,
-          tool_use_id: getAnthropicToolId(nextMessage.toolCallId),
+          type: "tool_result",
+          tool_use_id: nextId,
           content: convertToolResultContentToAnthropic(nextMessage.content),
           is_error: nextMessage.isError,
         });
+        satisfiedIds.add(nextId);
         j++;
       }
       i = j - 1;
+
+      // Synthesize "No result provided" for any tool_use from the last
+      // assistant message that wasn't covered by the toolResult run. They
+      // must live in the SAME user message as the real tool_results so that
+      // every tool_use is immediately followed by matching results.
+      for (const id of pendingToolUseIds) {
+        if (!satisfiedIds.has(id)) {
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: id,
+            content: "No result provided",
+            is_error: true,
+          });
+        }
+      }
+      pendingToolUseIds = [];
+
       params.push({ role: "user", content: toolResults });
     }
   }
