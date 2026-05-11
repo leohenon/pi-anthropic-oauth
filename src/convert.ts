@@ -18,7 +18,7 @@ import type {
   Tool,
   ToolCall,
   ToolResultMessage,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 import { sanitizeSurrogates } from "./prompt.js";
 
 export type IndexedBlock =
