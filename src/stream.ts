@@ -11,7 +11,7 @@ import {
   type SimpleStreamOptions,
   type StopReason,
   streamSimpleAnthropic,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 import { isClaudeOAuthAccessToken, USER_AGENT } from "./auth.js";
 import {
   convertPiMessagesToAnthropic,
