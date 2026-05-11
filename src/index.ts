@@ -7,7 +7,7 @@ import {
   type ExtensionAPI,
   type ProviderConfig,
 } from "@mariozechner/pi-coding-agent";
-import type { OAuthCredentials } from "@mariozechner/pi-ai";
+import type { OAuthCredentials } from "@earendil-works/pi-ai";
 import { loginAnthropic, refreshAnthropicToken } from "./auth.js";
 import { streamAnthropicOAuth } from "./stream.js";
 
