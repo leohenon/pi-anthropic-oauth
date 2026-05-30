@@ -11,7 +11,7 @@ Use Claude Pro/Max in Pi with browser OAuth.
 - Claude Code-compatible OAuth headers and prompt shaping
 - No API key or extra usage needed.
 - Uses Pi's Anthropic model registry
-- Adds Claude Opus 4.7 by default
+- Adds Claude Opus 4.8 by default
 - Auto-creates `~/.Claude Code` → `~/.pi` symlink when missing
 
 ## Quick start
