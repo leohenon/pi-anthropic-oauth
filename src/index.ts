@@ -11,9 +11,9 @@ import type { OAuthCredentials } from "@earendil-works/pi-ai";
 import { loginAnthropic, refreshAnthropicToken } from "./auth.js";
 import { streamAnthropicOAuth } from "./stream.js";
 
-const DEFAULT_OPUS_4_7: NonNullable<ProviderConfig["models"]>[number] = {
-  id: "claude-opus-4-7",
-  name: "Claude Opus 4.7",
+const DEFAULT_OPUS_4_8: NonNullable<ProviderConfig["models"]>[number] = {
+  id: "claude-opus-4-8",
+  name: "Claude Opus 4.8",
   api: "anthropic-messages",
   reasoning: true,
   input: ["text", "image"],
@@ -50,8 +50,8 @@ function getAnthropicModels(): NonNullable<ProviderConfig["models"]> {
       compat: model.compat,
     }));
 
-  if (!models.some((model) => model.id === DEFAULT_OPUS_4_7.id)) {
-    models.push(DEFAULT_OPUS_4_7);
+  if (!models.some((model) => model.id === DEFAULT_OPUS_4_8.id)) {
+    models.push(DEFAULT_OPUS_4_8);
   }
 
   return models;
