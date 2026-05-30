@@ -16,6 +16,7 @@ const DEFAULT_OPUS_4_8: NonNullable<ProviderConfig["models"]>[number] = {
   name: "Claude Opus 4.8",
   api: "anthropic-messages",
   reasoning: true,
+  thinkingLevelMap: { xhigh: "xhigh" },
   input: ["text", "image"],
   cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   contextWindow: 1000000,
@@ -38,16 +39,12 @@ function getAnthropicModels(): NonNullable<ProviderConfig["models"]> {
   const models: NonNullable<ProviderConfig["models"]> = modelRegistry
     .getAll()
     .filter((model) => model.provider === "anthropic")
+    // Spread the full registry model so every field (thinkingLevelMap,
+    // baseUrl, headers, compat, and anything added in future) propagates
+    // automatically instead of being silently dropped by a hand-picked list.
     .map((model) => ({
-      id: model.id,
-      name: model.name,
+      ...model,
       api: model.api ?? "anthropic-messages",
-      reasoning: model.reasoning,
-      input: model.input,
-      cost: model.cost,
-      contextWindow: model.contextWindow,
-      maxTokens: model.maxTokens,
-      compat: model.compat,
     }));
 
   if (!models.some((model) => model.id === DEFAULT_OPUS_4_8.id)) {
