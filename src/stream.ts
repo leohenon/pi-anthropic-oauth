@@ -24,7 +24,12 @@ import { buildAnthropicSystemPrompt } from "./prompt.js";
 const REQUIRED_BETAS = [
   "claude-code-20250219",
   "oauth-2025-04-20",
-  "fine-grained-tool-streaming-2025-05-14",
+  // fine-grained-tool-streaming removed: it ships the model's raw, unvalidated
+  // tool-input JSON. For large edits full of quotes/newlines the streamed
+  // string escaping breaks, so a field (e.g. edit.oldText) swallows the rest of
+  // the structure — surfacing as either a hard JSON.parse crash or a wrong-shape
+  // schema-validation failure. Default streaming has the server validate/buffer
+  // tool JSON, guaranteeing well-formed, correctly-structured input.
   "interleaved-thinking-2025-05-14",
 ] as const;
 
@@ -57,10 +62,7 @@ function makeDefaultHeaders(
     headers["user-agent"] = USER_AGENT;
     headers["x-app"] = "cli";
   } else {
-    headers["anthropic-beta"] = [
-      "fine-grained-tool-streaming-2025-05-14",
-      "interleaved-thinking-2025-05-14",
-    ].join(",");
+    headers["anthropic-beta"] = ["interleaved-thinking-2025-05-14"].join(",");
   }
 
   if (options?.headers) {
@@ -170,7 +172,12 @@ export function streamAnthropicOAuth(
         };
       }
 
-      const anthropicStream = client.messages.stream(params, {
+      // Raw stream instead of the MessageStream helper: MessageStream
+      // accumulates tool_use input and JSON.parses it on content_block_stop,
+      // which throws under fine-grained-tool-streaming (input may be invalid
+      // mid-flight) and aborts the turn. The raw stream yields the same
+      // RawMessageStreamEvents; tool args are already parsed leniently below.
+      const anthropicStream = await client.messages.create(params, {
         signal: options?.signal,
       });
       stream.push({ type: "start", partial: output });
