@@ -24,7 +24,12 @@ import { buildAnthropicSystemPrompt } from "./prompt.js";
 const REQUIRED_BETAS = [
   "claude-code-20250219",
   "oauth-2025-04-20",
-  "fine-grained-tool-streaming-2025-05-14",
+  // fine-grained-tool-streaming removed: it ships the model's raw, unvalidated
+  // tool-input JSON. For large edits full of quotes/newlines the streamed
+  // string escaping breaks, so a field (e.g. edit.oldText) swallows the rest of
+  // the structure — surfacing as either a hard JSON.parse crash or a wrong-shape
+  // schema-validation failure. Default streaming has the server validate/buffer
+  // tool JSON, guaranteeing well-formed, correctly-structured input.
   "interleaved-thinking-2025-05-14",
 ] as const;
 
@@ -57,10 +62,7 @@ function makeDefaultHeaders(
     headers["user-agent"] = USER_AGENT;
     headers["x-app"] = "cli";
   } else {
-    headers["anthropic-beta"] = [
-      "fine-grained-tool-streaming-2025-05-14",
-      "interleaved-thinking-2025-05-14",
-    ].join(",");
+    headers["anthropic-beta"] = ["interleaved-thinking-2025-05-14"].join(",");
   }
 
   if (options?.headers) {
