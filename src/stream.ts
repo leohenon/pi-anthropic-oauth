@@ -170,7 +170,12 @@ export function streamAnthropicOAuth(
         };
       }
 
-      const anthropicStream = client.messages.stream(params, {
+      // Raw stream instead of the MessageStream helper: MessageStream
+      // accumulates tool_use input and JSON.parses it on content_block_stop,
+      // which throws under fine-grained-tool-streaming (input may be invalid
+      // mid-flight) and aborts the turn. The raw stream yields the same
+      // RawMessageStreamEvents; tool args are already parsed leniently below.
+      const anthropicStream = await client.messages.create(params, {
         signal: options?.signal,
       });
       stream.push({ type: "start", partial: output });
