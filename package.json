@@ -25,8 +25,9 @@
   },
   "scripts": {
     "check": "tsc -p tsconfig.json --noEmit",
+    "test": "node -e \"require('node:fs').rmSync('.test-dist', { recursive: true, force: true })\" && tsc -p tsconfig.json --outDir .test-dist && node --test test/*.test.mjs",
     "pack:check": "npm pack --dry-run",
-    "prepublishOnly": "npm run check && npm run pack:check"
+    "prepublishOnly": "npm run check && npm test && npm run pack:check"
   },
   "pi": {
     "extensions": [
