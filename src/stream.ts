@@ -120,7 +120,9 @@ export function streamAnthropicOAuth(
     try {
       const apiKey = options?.apiKey;
       if (!apiKey) {
-        throw new Error("No Anthropic auth available. Run /login anthropic.");
+        throw new Error(
+          "No Anthropic auth available. Run /login and choose Claude Pro/Max.",
+        );
       }
 
       const isOAuth = isClaudeOAuthAccessToken(apiKey);

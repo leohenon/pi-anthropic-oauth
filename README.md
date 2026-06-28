@@ -6,10 +6,10 @@ Use Claude Pro/Max in Pi with browser OAuth.
 
 ## Features
 
-- Claude Pro/Max login from `/login anthropic`
+- Claude Pro/Max login from `/login`
 - Automatic token refresh
 - Claude Code-compatible OAuth headers and prompt shaping
-- No API key or extra usage needed.
+- No Anthropic API key needed
 - Uses Pi's Anthropic model registry
 - Adds Claude Opus 4.8 by default
 - Auto-creates `~/.Claude Code` → `~/.pi` symlink when missing
@@ -20,10 +20,10 @@ Use Claude Pro/Max in Pi with browser OAuth.
 pi install npm:pi-anthropic-oauth
 ```
 
-Start Pi, then run:
+Start Pi, then run Pi's login command:
 
 ```text
-/login anthropic
+/login
 ```
 
 Choose:
@@ -31,6 +31,8 @@ Choose:
 ```text
 Claude Pro/Max
 ```
+
+Complete the browser login. After login, select an Anthropic model in Pi.
 
 > [!WARNING]
 > Use at your own risk. This may go against Anthropic's terms.
@@ -75,7 +77,7 @@ To add another Anthropic model, create `~/.pi/agent/models.json`:
   "providers": {
     "anthropic": {
       "baseUrl": "https://api.anthropic.com",
-      "apiKey": "REQUIRED_BY_PI_FOR_CUSTOM_MODELS",
+      "apiKey": "unused",
       "api": "anthropic-messages",
       "models": [
         {
@@ -89,12 +91,17 @@ To add another Anthropic model, create `~/.pi/agent/models.json`:
 ```
 
 > [!NOTE]
-> Pi requires `baseUrl`, `apiKey`, and `api` when defining custom models in `models.json`. With this extension, requests normally authenticate through Claude Pro/Max OAuth after `/login anthropic`, so `apiKey` is present to satisfy Pi's config requirements and does not need to be a valid Anthropic API key.
+> Custom models are not needed for Claude Opus 4.8; this extension registers `claude-opus-4-8` automatically.
+>
+> Pi requires `baseUrl`, `apiKey`, and `api` when defining custom models in `models.json`. With this extension, requests normally authenticate through Claude Pro/Max OAuth after `/login`, so `apiKey` is only a placeholder to satisfy Pi's config requirements and does not need to be a valid Anthropic API key.
+>
+> Do not use a fake `sk-ant-oat...` value as the placeholder. If OAuth login has not completed, Pi may try to use that fake token and Anthropic will return `401 Invalid bearer token`. Use a harmless placeholder such as `"unused"`, then run `/login` and choose `Claude Pro/Max`.
 
 ## Troubleshooting
 
-- Re-run `/login anthropic` if auth looks stale
+- Run `/login` with no arguments, then choose `Claude Pro/Max`.
 - If local callback login does not complete, paste the final callback URL or `code#state` when prompted
+- If you see `401 Invalid bearer token`, remove any fake `sk-ant-oat...` placeholder from `~/.pi/agent/models.json` and log in again
 - If something breaks, please open an issue with your Pi version, extension version, and error output
 
 ## License
