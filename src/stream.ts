@@ -48,6 +48,14 @@ function mapStopReason(reason: string | null | undefined): StopReason {
   }
 }
 
+function headersToRecord(headers: Headers): Record<string, string> {
+  const record: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    record[key] = value;
+  });
+  return record;
+}
+
 function makeDefaultHeaders(
   isOAuth: boolean,
   options?: SimpleStreamOptions,
@@ -179,9 +187,27 @@ export function streamAnthropicOAuth(
       // which throws under fine-grained-tool-streaming (input may be invalid
       // mid-flight) and aborts the turn. The raw stream yields the same
       // RawMessageStreamEvents; tool args are already parsed leniently below.
-      const anthropicStream = await client.messages.create(params, {
-        signal: options?.signal,
-      });
+      const { data: anthropicStream, response: httpResponse } =
+        await client.messages
+          .create(params, {
+            signal: options?.signal,
+          })
+          .withResponse();
+
+      if (options?.onResponse) {
+        try {
+          await options.onResponse(
+            {
+              status: httpResponse.status,
+              headers: headersToRecord(httpResponse.headers),
+            },
+            model,
+          );
+        } catch {
+          // Response hooks are best-effort and should not break streaming.
+        }
+      }
+
       stream.push({ type: "start", partial: output });
 
       const blocks = output.content as IndexedBlock[];
