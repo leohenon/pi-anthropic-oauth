@@ -40,6 +40,36 @@ Complete the browser login. After login, select an Anthropic model in Pi.
 > [!NOTE]
 > Anthropic auth changes are closely monitored for quick compatibility updates.
 
+## System prompt rewriting
+
+When using Claude Pro/Max OAuth, the extension prepends Claude Code identity text and rewrites standalone `Pi` / `pi` references in Pi's system prompt to `Claude Code`. The rewrite mode defaults to `aggressive`:
+
+```bash
+PI_ANTHROPIC_OAUTH_REWRITE_MODE=aggressive
+```
+
+Other modes are opt-in and avoid rewriting some technical strings such as paths, package names, or repository names. If OAuth starts failing, switch back to `aggressive`.
+
+Available modes:
+
+| Mode | Behavior |
+|------|----------|
+| `aggressive` | Default. Replaces standalone `Pi` / `pi` wherever the word-boundary pattern matches. |
+| `path-safe` | Avoids replacing `Pi` / `pi` immediately after `/` or `\`, preserving path segments like `/srv/dev/pi-foo`. |
+| `technical-safe` | Avoids replacing `Pi` / `pi` next to common technical-token separators: `/`, `\`, `.`, `@`, `:`, `_`, `-`. |
+| `custom` | Uses `PI_ANTHROPIC_OAUTH_REWRITE_PATTERN` as the replacement regex. |
+
+Custom patterns can be a regex source or a JavaScript-style regex literal. The `g` flag is added automatically when omitted:
+
+```bash
+PI_ANTHROPIC_OAUTH_REWRITE_MODE=custom
+PI_ANTHROPIC_OAUTH_REWRITE_PATTERN='(?<![/\\])\b[Pp]i\b'
+# or
+PI_ANTHROPIC_OAUTH_REWRITE_PATTERN='/\bpi\b/gi'
+```
+
+There is no separate off mode. If you need to disable rewriting entirely, use a custom pattern that never matches, such as `(?!)`. Disabling or weakening the rewrite may affect OAuth compatibility.
+
 ## Extra models
 
 To add another Anthropic model, create `~/.pi/agent/models.json`:
