@@ -1,6 +1,6 @@
 # pi-anthropic-oauth
 
-[![npm](https://img.shields.io/npm/v/pi-anthropic-oauth?style=flat-square&logo=npm&logoColor=white&label=npm&color=7c3aed)](https://www.npmjs.com/package/pi-anthropic-oauth) [![node](https://img.shields.io/badge/node-%3E%3D18-7c3aed?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![npm](https://img.shields.io/npm/v/pi-anthropic-oauth?style=flat-square&logo=npm&logoColor=white&label=npm&color=7c3aed)](https://www.npmjs.com/package/pi-anthropic-oauth)
 
 Use Claude Pro/Max in Pi with browser OAuth.
 
@@ -34,8 +34,11 @@ Claude Pro/Max
 
 Complete the browser login. After login, select an Anthropic model in Pi.
 
-> [!WARNING]
-> Use at your own risk. This may go against Anthropic's terms.
+Update with:
+
+```bash
+pi update npm:pi-anthropic-oauth
+```
 
 > [!NOTE]
 > Anthropic auth changes are closely monitored for quick compatibility updates.
@@ -52,12 +55,12 @@ Other modes are opt-in and avoid rewriting some technical strings such as paths,
 
 Available modes:
 
-| Mode | Behavior |
-|------|----------|
-| `aggressive` | Default. Replaces standalone `Pi` / `pi` wherever the word-boundary pattern matches. |
-| `path-safe` | Avoids replacing `Pi` / `pi` immediately after `/` or `\`, preserving path segments like `/srv/dev/pi-foo`. |
-| `technical-safe` | Avoids replacing `Pi` / `pi` next to common technical-token separators: `/`, `\`, `.`, `@`, `:`, `_`, `-`. |
-| `custom` | Uses `PI_ANTHROPIC_OAUTH_REWRITE_PATTERN` as the replacement regex. |
+| Mode             | Behavior                                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| `aggressive`     | Default. Replaces standalone `Pi` / `pi` wherever the word-boundary pattern matches.                        |
+| `path-safe`      | Avoids replacing `Pi` / `pi` immediately after `/` or `\`, preserving path segments like `/srv/dev/pi-foo`. |
+| `technical-safe` | Avoids replacing `Pi` / `pi` next to common technical-token separators: `/`, `\`, `.`, `@`, `:`, `_`, `-`.  |
+| `custom`         | Uses `PI_ANTHROPIC_OAUTH_REWRITE_PATTERN` as the replacement regex.                                         |
 
 Custom patterns can be a regex source or a JavaScript-style regex literal. The `g` flag is added automatically when omitted:
 
