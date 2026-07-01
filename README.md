@@ -48,6 +48,8 @@ When using Claude Pro/Max OAuth, the extension prepends Claude Code identity tex
 PI_ANTHROPIC_OAUTH_REWRITE_MODE=aggressive
 ```
 
+Other modes are opt-in and avoid rewriting some technical strings such as paths, package names, or repository names. If OAuth starts failing, switch back to `aggressive`.
+
 Available modes:
 
 | Mode | Behavior |
@@ -66,7 +68,7 @@ PI_ANTHROPIC_OAUTH_REWRITE_PATTERN='(?<![/\\])\b[Pp]i\b'
 PI_ANTHROPIC_OAUTH_REWRITE_PATTERN='/\bpi\b/gi'
 ```
 
-There is no separate off mode. If you need to disable rewriting entirely, use a custom pattern that never matches, such as `(?!)`.
+There is no separate off mode. If you need to disable rewriting entirely, use a custom pattern that never matches, such as `(?!)`. Disabling or weakening the rewrite may affect OAuth compatibility.
 
 ## Extra models
 
