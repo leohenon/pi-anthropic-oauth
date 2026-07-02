@@ -11,18 +11,32 @@ import type { OAuthCredentials } from "@earendil-works/pi-ai";
 import { loginAnthropic, refreshAnthropicToken } from "./auth.js";
 import { streamAnthropicOAuth } from "./stream.js";
 
-const DEFAULT_OPUS_4_8: NonNullable<ProviderConfig["models"]>[number] = {
-  id: "claude-opus-4-8",
-  name: "Claude Opus 4.8",
-  api: "anthropic-messages",
-  reasoning: true,
-  thinkingLevelMap: { xhigh: "xhigh" },
-  input: ["text", "image"],
-  cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
-  contextWindow: 1000000,
-  maxTokens: 128000,
-  compat: undefined,
-};
+const DEFAULT_MODELS: NonNullable<ProviderConfig["models"]> = [
+  {
+    id: "claude-opus-4-8",
+    name: "Claude Opus 4.8",
+    api: "anthropic-messages",
+    reasoning: true,
+    thinkingLevelMap: { xhigh: "xhigh" },
+    input: ["text", "image"],
+    cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+    contextWindow: 1000000,
+    maxTokens: 128000,
+    compat: undefined,
+  },
+  {
+    id: "claude-fable-5",
+    name: "Claude Fable 5",
+    api: "anthropic-messages",
+    reasoning: true,
+    thinkingLevelMap: { xhigh: "xhigh" },
+    input: ["text", "image"],
+    cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+    contextWindow: 1000000,
+    maxTokens: 128000,
+    compat: undefined,
+  },
+];
 
 function ensureClaudeCodeSymlink() {
   const target = join(homedir(), ".pi");
@@ -47,8 +61,10 @@ function getAnthropicModels(): NonNullable<ProviderConfig["models"]> {
       api: model.api ?? "anthropic-messages",
     }));
 
-  if (!models.some((model) => model.id === DEFAULT_OPUS_4_8.id)) {
-    models.push(DEFAULT_OPUS_4_8);
+  for (const defaultModel of DEFAULT_MODELS) {
+    if (!models.some((model) => model.id === defaultModel.id)) {
+      models.push(defaultModel);
+    }
   }
 
   return models;
