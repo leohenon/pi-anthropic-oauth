@@ -10,7 +10,6 @@ import {
   type Model,
   type SimpleStreamOptions,
   type StopReason,
-  streamSimpleAnthropic,
 } from "@earendil-works/pi-ai";
 import { isClaudeOAuthAccessToken, USER_AGENT } from "./auth.js";
 import {
@@ -82,7 +81,11 @@ function makeDefaultHeaders(
       ) {
         continue;
       }
-      headers[key] = value;
+      const existingKey = Object.keys(headers).find(
+        (header) => header.toLowerCase() === normalizedKey,
+      );
+      if (existingKey) delete headers[existingKey];
+      if (value !== null) headers[key] = value;
     }
   }
 
@@ -94,16 +97,6 @@ export function streamAnthropicOAuth(
   context: Context,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
-  // pi-ai keys streamSimple by `api`, so this runs for every anthropic-messages
-  // model (copilot, openrouter, …). Delegate non-anthropic providers.
-  if (model.provider !== "anthropic") {
-    return streamSimpleAnthropic(
-      model as Model<"anthropic-messages">,
-      context,
-      options,
-    );
-  }
-
   const stream = createAssistantMessageEventStream();
 
   void (async () => {
