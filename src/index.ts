@@ -1,9 +1,7 @@
-import { existsSync, symlinkSync } from "node:fs";
+import { existsSync, readFileSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
-  AuthStorage,
-  ModelRegistry,
   type ExtensionAPI,
   type ProviderConfig,
 } from "@earendil-works/pi-coding-agent";
@@ -49,17 +47,27 @@ function ensureClaudeCodeSymlink() {
 }
 
 function getAnthropicModels(): NonNullable<ProviderConfig["models"]> {
-  const modelRegistry = ModelRegistry.create(AuthStorage.inMemory());
-  const models: NonNullable<ProviderConfig["models"]> = modelRegistry
-    .getAll()
-    .filter((model) => model.provider === "anthropic")
-    // Spread the full registry model so every field (thinkingLevelMap,
-    // baseUrl, headers, compat, and anything added in future) propagates
-    // automatically instead of being silently dropped by a hand-picked list.
-    .map((model) => ({
-      ...model,
-      api: model.api ?? "anthropic-messages",
-    }));
+  const models: NonNullable<ProviderConfig["models"]> = [];
+
+  // Pi 0.80.x removed the synchronous `ModelRegistry.create(AuthStorage.inMemory())`
+  // facade this used to read the host's known anthropic models from. Read the
+  // catalog the host maintains on disk instead, so newer models (sonnet, haiku, …)
+  // stay selectable; fall back to the bundled defaults if it's missing or its
+  // shape changes — this must never throw at extension-load time.
+  try {
+    const storePath = join(homedir(), ".pi", "agent", "models-store.json");
+    const store = JSON.parse(readFileSync(storePath, "utf8"));
+    const stored = store?.anthropic?.models;
+    if (Array.isArray(stored)) {
+      for (const model of stored) {
+        if (!model?.id) continue;
+        if (model.provider && model.provider !== "anthropic") continue;
+        models.push({ ...model, api: model.api ?? "anthropic-messages" });
+      }
+    }
+  } catch {
+    // best-effort: the defaults below are always registered
+  }
 
   for (const defaultModel of DEFAULT_MODELS) {
     if (!models.some((model) => model.id === defaultModel.id)) {
