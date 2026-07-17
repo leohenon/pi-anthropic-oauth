@@ -4,6 +4,9 @@
 
 Use Claude Pro/Max in Pi with browser OAuth.
 
+> [!IMPORTANT]
+> This release requires Pi 0.80.8 or later in the 0.80.x release line.
+
 ## Features
 
 - Claude Pro/Max login from `/login`
