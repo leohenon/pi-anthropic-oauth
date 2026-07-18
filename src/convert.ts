@@ -34,6 +34,18 @@ const claudeCodeTools = [
   "Grep",
   "Glob",
   "AskUserQuestion",
+  "EnterPlanMode",
+  "ExitPlanMode",
+  "NotebookEdit",
+  "Skill",
+  "Agent",
+  "Task",
+  "TaskCreate",
+  "TaskGet",
+  "TaskList",
+  "TaskOutput",
+  "TaskStop",
+  "TaskUpdate",
   "TodoWrite",
   "WebFetch",
   "WebSearch",
@@ -134,6 +146,27 @@ export function convertPiMessagesToAnthropic(
       for (const block of message.content) {
         if (block.type === "text" && block.text.trim()) {
           blocks.push({ type: "text", text: sanitizeSurrogates(block.text) });
+        } else if (block.type === "thinking") {
+          if (block.redacted && block.thinkingSignature) {
+            blocks.push({
+              type: "redacted_thinking",
+              data: block.thinkingSignature,
+            } as ContentBlockParam);
+          } else if (block.thinkingSignature) {
+            blocks.push({
+              type: "thinking",
+              thinking: sanitizeSurrogates(block.thinking),
+              signature: block.thinkingSignature,
+            } as ContentBlockParam);
+          } else if (block.thinking.trim()) {
+            // An interrupted stream may not have received a signature. Sending
+            // it as a thinking block would make the next request invalid, so
+            // retain the visible content as ordinary assistant text instead.
+            blocks.push({
+              type: "text",
+              text: sanitizeSurrogates(block.thinking),
+            });
+          }
         } else if (block.type === "toolCall") {
           const anthropicId = getAnthropicToolId(block.id);
           blocks.push({

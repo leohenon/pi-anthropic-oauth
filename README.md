@@ -48,6 +48,21 @@ pi update npm:pi-anthropic-oauth
 > [!NOTE]
 > Anthropic auth changes are closely monitored for quick compatibility updates.
 
+## Claude Code compatibility
+
+The extension detects the installed `claude --version` once at startup and uses
+that version in its Claude Code-compatible inference headers. If `claude` is not
+available on `PATH`, it falls back to the version tested by this release.
+
+To override detection explicitly:
+
+```bash
+PI_ANTHROPIC_OAUTH_CLAUDE_CODE_VERSION=2.1.214 pi
+```
+
+Modern models marked by Pi as adaptive-thinking models use adaptive thinking
+and effort controls. Older Claude models continue to use token-budget thinking.
+
 ## System prompt rewriting
 
 When using Claude Pro/Max OAuth, the extension prepends Claude Code identity text and rewrites standalone `Pi` / `pi` references in Pi's system prompt to `Claude Code`. The rewrite mode defaults to `aggressive`:

@@ -19,18 +19,11 @@ import {
   type IndexedBlock,
 } from "./convert.js";
 import { buildAnthropicSystemPrompt } from "./prompt.js";
-
-const REQUIRED_BETAS = [
-  "claude-code-20250219",
-  "oauth-2025-04-20",
-  // fine-grained-tool-streaming removed: it ships the model's raw, unvalidated
-  // tool-input JSON. For large edits full of quotes/newlines the streamed
-  // string escaping breaks, so a field (e.g. edit.oldText) swallows the rest of
-  // the structure — surfacing as either a hard JSON.parse crash or a wrong-shape
-  // schema-validation failure. Default streaming has the server validate/buffer
-  // tool JSON, guaranteeing well-formed, correctly-structured input.
-  "interleaved-thinking-2025-05-14",
-] as const;
+import {
+  buildThinkingRequest,
+  createClaudeCodeSessionId,
+  REQUIRED_OAUTH_BETAS,
+} from "./request.js";
 
 function mapStopReason(reason: string | null | undefined): StopReason {
   switch (reason) {
@@ -58,6 +51,7 @@ function headersToRecord(headers: Headers): Record<string, string> {
 function makeDefaultHeaders(
   isOAuth: boolean,
   options?: SimpleStreamOptions,
+  sessionId?: string,
 ): Record<string, string> {
   const headers: Record<string, string> = {
     accept: "application/json",
@@ -65,9 +59,10 @@ function makeDefaultHeaders(
   };
 
   if (isOAuth) {
-    headers["anthropic-beta"] = REQUIRED_BETAS.join(",");
+    headers["anthropic-beta"] = REQUIRED_OAUTH_BETAS.join(",");
     headers["user-agent"] = USER_AGENT;
     headers["x-app"] = "cli";
+    if (sessionId) headers["X-Claude-Code-Session-Id"] = sessionId;
   } else {
     headers["anthropic-beta"] = ["interleaved-thinking-2025-05-14"].join(",");
   }
@@ -127,7 +122,11 @@ export function streamAnthropicOAuth(
       }
 
       const isOAuth = isClaudeOAuthAccessToken(apiKey);
-      const defaultHeaders = makeDefaultHeaders(isOAuth, options);
+      const defaultHeaders = makeDefaultHeaders(
+        isOAuth,
+        options,
+        createClaudeCodeSessionId(context),
+      );
 
       if (isOAuth) defaultHeaders.authorization = `Bearer ${apiKey}`;
 
@@ -154,25 +153,12 @@ export function streamAnthropicOAuth(
       if (context.tools?.length)
         params.tools = convertPiToolsToAnthropic(context.tools, isOAuth);
 
-      if (options?.reasoning && model.reasoning && maxTokens > 1) {
-        const defaultBudgets: Record<string, number> = {
-          minimal: 1024,
-          low: 4096,
-          medium: 10240,
-          high: 20480,
-          xhigh: 32000,
-        };
-        const customBudget =
-          options.thinkingBudgets?.[
-            options.reasoning as keyof typeof options.thinkingBudgets
-          ];
-        const requestedBudget =
-          customBudget ?? defaultBudgets[options.reasoning] ?? 10240;
-
-        params.thinking = {
-          type: "enabled",
-          budget_tokens: Math.min(requestedBudget, maxTokens - 1),
-        };
+      const thinkingRequest = buildThinkingRequest(model, options, maxTokens);
+      if (thinkingRequest.thinking) {
+        params.thinking = thinkingRequest.thinking as never;
+      }
+      if (thinkingRequest.outputConfig) {
+        params.output_config = thinkingRequest.outputConfig as never;
       }
 
       // Raw stream instead of the MessageStream helper: MessageStream
@@ -241,6 +227,19 @@ export function streamAnthropicOAuth(
               type: "thinking",
               thinking: "",
               thinkingSignature: "",
+              index: event.index,
+            } as IndexedBlock);
+            stream.push({
+              type: "thinking_start",
+              contentIndex: output.content.length - 1,
+              partial: output,
+            });
+          } else if (event.content_block.type === "redacted_thinking") {
+            output.content.push({
+              type: "thinking",
+              thinking: "",
+              thinkingSignature: event.content_block.data,
+              redacted: true,
               index: event.index,
             } as IndexedBlock);
             stream.push({

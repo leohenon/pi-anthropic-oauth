@@ -35,7 +35,7 @@
     ]
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.52.0"
+    "@anthropic-ai/sdk": "^0.112.3"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "^0.80.8",
