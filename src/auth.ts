@@ -1,11 +1,12 @@
 import { createServer } from "node:http";
+import { execFileSync } from "node:child_process";
 import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
 } from "@earendil-works/pi-ai";
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
-const AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
+const AUTHORIZE_URL = "https://claude.com/cai/oauth/authorize";
 const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
 const REDIRECT_URI = "https://platform.claude.com/oauth/code/callback";
 const SCOPES = [
@@ -16,7 +17,9 @@ const SCOPES = [
   "user:mcp_servers",
   "user:file_upload",
 ].join(" ");
-const USER_AGENT = "claude-code/2.1.97";
+const FALLBACK_CLAUDE_CODE_VERSION = "2.1.214";
+const CLAUDE_CODE_VERSION_ENV = "PI_ANTHROPIC_OAUTH_CLAUDE_CODE_VERSION";
+const USER_AGENT = buildClaudeCodeUserAgent(resolveClaudeCodeVersion());
 const CALLBACK_PORT = 53692;
 const CALLBACK_HOST = "127.0.0.1";
 const LOCAL_CALLBACK_TIMEOUT = 5 * 60 * 1000;
@@ -24,6 +27,33 @@ const MAX_TOKEN_RETRIES = 2;
 const INITIAL_RETRY_DELAY_MS = 5000;
 
 export { USER_AGENT };
+
+export function parseClaudeCodeVersion(output: string): string | undefined {
+  return output.match(/\b(\d+\.\d+\.\d+)\b/)?.[1];
+}
+
+export function buildClaudeCodeUserAgent(version: string): string {
+  return `claude-cli/${version} (external, cli)`;
+}
+
+function resolveClaudeCodeVersion(): string {
+  const configured = process.env[CLAUDE_CODE_VERSION_ENV]?.trim();
+  if (configured) {
+    const parsed = parseClaudeCodeVersion(configured);
+    if (parsed) return parsed;
+  }
+
+  try {
+    const output = execFileSync("claude", ["--version"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2_000,
+    });
+    return parseClaudeCodeVersion(output) ?? FALLBACK_CLAUDE_CODE_VERSION;
+  } catch {
+    return FALLBACK_CLAUDE_CODE_VERSION;
+  }
+}
 
 type ParsedAuthInput = { code: string; state: string };
 type LocalAuthorization = {
