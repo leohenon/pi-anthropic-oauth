@@ -40,11 +40,28 @@ const claudeCodeTools = [
 ] as const;
 const claudeCodeToolLookup = new Map(claudeCodeTools.map((name) => [name.toLowerCase(), name]));
 
+// Anthropic's OAuth classifier rejects tool definitions with names outside
+// Claude Code's own tool set with a 400 "Third-party apps now draw from your
+// extra usage" error. Claude Code exposes MCP tools as `mcp__<server>__<tool>`,
+// so unknown tools are namespaced under `mcp__pi__`.
+const CLAUDE_CODE_MCP_TOOL_PREFIX = "mcp__pi__";
+
+function sanitizeCustomToolName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
 export function toClaudeCodeToolName(name: string): string {
-  return claudeCodeToolLookup.get(name.toLowerCase()) ?? name;
+  return (
+    claudeCodeToolLookup.get(name.toLowerCase()) ??
+    `${CLAUDE_CODE_MCP_TOOL_PREFIX}${sanitizeCustomToolName(name)}`
+  );
 }
 
 export function fromClaudeCodeToolName(name: string, tools?: Tool[]): string {
+  if (name.startsWith(CLAUDE_CODE_MCP_TOOL_PREFIX)) {
+    const stripped = name.slice(CLAUDE_CODE_MCP_TOOL_PREFIX.length);
+    return tools?.find((tool) => sanitizeCustomToolName(tool.name) === stripped)?.name ?? stripped;
+  }
   const lower = name.toLowerCase();
   return tools?.find((tool) => tool.name.toLowerCase() === lower)?.name ?? name;
 }
