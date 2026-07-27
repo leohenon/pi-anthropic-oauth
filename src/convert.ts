@@ -11,8 +11,10 @@ type ToolResultContentBlock =
       };
     };
 import type {
+  Api,
   ImageContent,
   Message,
+  Model,
   TextContent,
   ThinkingContent,
   Tool,
@@ -52,6 +54,7 @@ export function fromClaudeCodeToolName(name: string, tools?: Tool[]): string {
 export function convertPiMessagesToAnthropic(
   messages: Message[],
   isOAuth: boolean,
+  model: Pick<Model<Api>, "provider" | "api" | "id">,
 ): MessageParam[] {
   const params: MessageParam[] = [];
   const toolIdMap = new Map<string, string>();
@@ -131,9 +134,34 @@ export function convertPiMessagesToAnthropic(
 
       const blocks: ContentBlockParam[] = [];
       const emittedToolUseIds: string[] = [];
+      const isSameModel =
+        message.provider === model.provider &&
+        message.api === model.api &&
+        message.model === model.id;
       for (const block of message.content) {
         if (block.type === "text" && block.text.trim()) {
           blocks.push({ type: "text", text: sanitizeSurrogates(block.text) });
+        } else if (block.type === "thinking") {
+          const thinkingSignature = block.thinkingSignature?.trim();
+          if (block.redacted) {
+            if (isSameModel && thinkingSignature) {
+              blocks.push({
+                type: "redacted_thinking",
+                data: block.thinkingSignature!,
+              });
+            }
+          } else if (isSameModel && thinkingSignature) {
+            blocks.push({
+              type: "thinking",
+              thinking: sanitizeSurrogates(block.thinking),
+              signature: block.thinkingSignature!,
+            });
+          } else if (block.thinking.trim()) {
+            blocks.push({
+              type: "text",
+              text: sanitizeSurrogates(block.thinking),
+            });
+          }
         } else if (block.type === "toolCall") {
           const anthropicId = getAnthropicToolId(block.id);
           blocks.push({

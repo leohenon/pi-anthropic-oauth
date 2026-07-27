@@ -144,7 +144,7 @@ export function streamAnthropicOAuth(
 
       const params: MessageCreateParamsStreaming = {
         model: model.id,
-        messages: convertPiMessagesToAnthropic(context.messages, isOAuth),
+        messages: convertPiMessagesToAnthropic(context.messages, isOAuth, model),
         max_tokens: maxTokens,
         stream: true,
       };
@@ -241,6 +241,19 @@ export function streamAnthropicOAuth(
               type: "thinking",
               thinking: "",
               thinkingSignature: "",
+              index: event.index,
+            } as IndexedBlock);
+            stream.push({
+              type: "thinking_start",
+              contentIndex: output.content.length - 1,
+              partial: output,
+            });
+          } else if (event.content_block.type === "redacted_thinking") {
+            output.content.push({
+              type: "thinking",
+              thinking: "[Reasoning redacted]",
+              thinkingSignature: event.content_block.data,
+              redacted: true,
               index: event.index,
             } as IndexedBlock);
             stream.push({
@@ -378,6 +391,14 @@ export function streamAnthropicOAuth(
           output.usage.cacheWrite =
             (event.usage as { cache_creation_input_tokens?: number })
               .cache_creation_input_tokens || 0;
+          const thinkingTokens = (
+            event.usage as {
+              output_tokens_details?: { thinking_tokens?: number };
+            }
+          ).output_tokens_details?.thinking_tokens;
+          if (thinkingTokens != null) {
+            output.usage.reasoning = thinkingTokens;
+          }
           output.usage.totalTokens =
             output.usage.input +
             output.usage.output +
