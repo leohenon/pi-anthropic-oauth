@@ -3,8 +3,31 @@ import assert from "node:assert/strict";
 import {
   PI_REWRITE_MODE_ENV,
   PI_REWRITE_PATTERN_ENV,
+  sanitizeSurrogates,
   sanitizeSystemText,
 } from "../.test-dist/prompt.js";
+
+test("preserves valid surrogate pairs (non-BMP characters)", () => {
+  assert.equal(sanitizeSurrogates("\u{1F680}"), "\u{1F680}");
+  assert.equal(sanitizeSurrogates("a\u{1F355}b\u{1F408}c"), "a\u{1F355}b\u{1F408}c");
+});
+
+test("leaves BMP text untouched", () => {
+  assert.equal(sanitizeSurrogates("\u2615\uFE0F \u26A0 \u2192"), "\u2615\uFE0F \u26A0 \u2192");
+});
+
+test("replaces unpaired surrogates", () => {
+  assert.equal(sanitizeSurrogates("\uD800"), "\uFFFD");
+  assert.equal(sanitizeSurrogates("\uDC00"), "\uFFFD");
+  assert.equal(sanitizeSurrogates("\uDC00\uD800"), "\uFFFD\uFFFD"); // reversed pair
+});
+
+test("replaces unpaired surrogates adjacent to valid pairs", () => {
+  assert.equal(sanitizeSurrogates("\u{1F680}\uD800"), "\u{1F680}\uFFFD");
+  assert.equal(sanitizeSurrogates("\uD800\u{1F680}"), "\uFFFD\u{1F680}");
+  assert.equal(sanitizeSurrogates("\u{1F680}\uDC00"), "\u{1F680}\uFFFD");
+  assert.equal(sanitizeSurrogates("\uD800\uD800\uDC00"), "\uFFFD\u{10000}");
+});
 
 function rewriteEnv(mode, pattern) {
   return {

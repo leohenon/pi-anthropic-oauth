@@ -32,7 +32,15 @@ type MessageContentBlock = {
 };
 
 export function sanitizeSurrogates(text: string): string {
-  return text.replace(/[\uD800-\uDFFF]/g, "\uFFFD");
+  // Replace only *unpaired* surrogates: a high surrogate not followed by a low
+  // surrogate, or a low surrogate not preceded by a high surrogate. Valid
+  // surrogate pairs (non-BMP characters such as emoji) must pass through
+  // untouched. Equivalent to String.prototype.toWellFormed(), which requires
+  // Node 20+ while this package supports Node >=18.
+  return text.replace(
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+    "\uFFFD",
+  );
 }
 
 export function buildAnthropicSystemPrompt(
