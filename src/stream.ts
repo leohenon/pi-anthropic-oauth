@@ -168,11 +168,40 @@ export function streamAnthropicOAuth(
           ];
         const requestedBudget =
           customBudget ?? defaultBudgets[options.reasoning] ?? 10240;
+        const display = "summarized";
+        const forceAdaptive = (
+          model.compat as { forceAdaptiveThinking?: boolean } | undefined
+        )?.forceAdaptiveThinking;
+        const id = model.id.toLowerCase().replace(/\./g, "-");
+        const adaptive =
+          forceAdaptive === true ||
+          (forceAdaptive !== false &&
+            (/claude-(?:opus|sonnet|haiku|fable|mythos)-5(?:-|$)/.test(id) ||
+              /claude-(?:opus|sonnet|haiku|fable|mythos)-4-(?:[6-9]|\d{2,})(?:-|$)/.test(
+                id,
+              )));
 
-        params.thinking = {
-          type: "enabled",
-          budget_tokens: Math.min(requestedBudget, maxTokens - 1),
-        };
+        if (adaptive) {
+          const mapped = model.thinkingLevelMap?.[options.reasoning];
+          const effort =
+            typeof mapped === "string"
+              ? mapped
+              : options.reasoning === "minimal" || options.reasoning === "low"
+                ? "low"
+                : options.reasoning === "medium"
+                  ? "medium"
+                  : options.reasoning === "high"
+                    ? "high"
+                    : "high";
+          params.thinking = { type: "adaptive", display } as never;
+          Object.assign(params, { output_config: { effort } });
+        } else {
+          params.thinking = {
+            type: "enabled",
+            budget_tokens: Math.min(requestedBudget, maxTokens - 1),
+            display,
+          } as never;
+        }
       }
 
       // Raw stream instead of the MessageStream helper: MessageStream
