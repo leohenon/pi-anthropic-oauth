@@ -32,6 +32,32 @@ const REQUIRED_BETAS = [
   "interleaved-thinking-2025-05-14",
 ] as const;
 
+// budget_tokens is removed on every current Anthropic model and returns 400;
+// only the pre-4.6 generation still accepts it. Gate on the known-legacy shape
+// so unknown ids - future models, and the custom entries ~/.pi/agent/models.json
+// is documented to accept - default to adaptive, the path that works.
+const LEGACY_THINKING_MODEL =
+  /^claude-(?:opus|sonnet|haiku)-4-[0-5](?:-|$)|^claude-[0-3][-.]/;
+
+const MIN_THINKING_BUDGET = 1024;
+
+const EFFORT_BY_REASONING: Record<string, string> = {
+  minimal: "low",
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+  max: "max",
+};
+
+export function usesAdaptiveThinking(model: Model<Api>): boolean {
+  const forced = (
+    model.compat as { forceAdaptiveThinking?: boolean } | undefined
+  )?.forceAdaptiveThinking;
+  if (typeof forced === "boolean") return forced;
+  return !LEGACY_THINKING_MODEL.test(model.id.toLowerCase().replace(/\./g, "-"));
+}
+
 function mapStopReason(reason: string | null | undefined): StopReason {
   switch (reason) {
     case "end_turn":
@@ -155,24 +181,40 @@ export function streamAnthropicOAuth(
         params.tools = convertPiToolsToAnthropic(context.tools, isOAuth);
 
       if (options?.reasoning && model.reasoning && maxTokens > 1) {
-        const defaultBudgets: Record<string, number> = {
-          minimal: 1024,
-          low: 4096,
-          medium: 10240,
-          high: 20480,
-          xhigh: 32000,
-        };
-        const customBudget =
-          options.thinkingBudgets?.[
-            options.reasoning as keyof typeof options.thinkingBudgets
-          ];
-        const requestedBudget =
-          customBudget ?? defaultBudgets[options.reasoning] ?? 10240;
+        if (usesAdaptiveThinking(model)) {
+          const mapped = model.thinkingLevelMap?.[options.reasoning];
+          const effort =
+            typeof mapped === "string"
+              ? mapped
+              : (EFFORT_BY_REASONING[options.reasoning] ?? "high");
+          // display defaults to "omitted" on every model that takes adaptive
+          // thinking, which streams thinking blocks with empty text - Pi renders
+          // those as a long silent pause. Ask for the summary explicitly.
+          params.thinking = { type: "adaptive", display: "summarized" } as never;
+          Object.assign(params, { output_config: { effort } });
+        } else {
+          const defaultBudgets: Record<string, number> = {
+            minimal: MIN_THINKING_BUDGET,
+            low: 4096,
+            medium: 10240,
+            high: 20480,
+            xhigh: 32000,
+          };
+          const customBudget =
+            options.thinkingBudgets?.[
+              options.reasoning as keyof typeof options.thinkingBudgets
+            ];
+          const requestedBudget =
+            customBudget ?? defaultBudgets[options.reasoning] ?? 10240;
+          const budget = Math.min(requestedBudget, maxTokens - 1);
 
-        params.thinking = {
-          type: "enabled",
-          budget_tokens: Math.min(requestedBudget, maxTokens - 1),
-        };
+          // Anthropic rejects budget_tokens below 1024. A small max_tokens (or an
+          // explicit budget of 0) would otherwise produce a request the API is
+          // guaranteed to refuse; skipping thinking degrades far better.
+          if (budget >= MIN_THINKING_BUDGET) {
+            params.thinking = { type: "enabled", budget_tokens: budget };
+          }
+        }
       }
 
       // Raw stream instead of the MessageStream helper: MessageStream
@@ -378,27 +420,44 @@ export function streamAnthropicOAuth(
         }
 
         if (event.type === "message_delta") {
-          output.stopReason = mapStopReason(event.delta.stop_reason);
-          output.usage.input =
-            (event.usage as { input_tokens?: number }).input_tokens ||
-            output.usage.input;
-          output.usage.output =
-            (event.usage as { output_tokens?: number }).output_tokens ||
-            output.usage.output;
-          output.usage.cacheRead =
-            (event.usage as { cache_read_input_tokens?: number })
-              .cache_read_input_tokens || 0;
-          output.usage.cacheWrite =
-            (event.usage as { cache_creation_input_tokens?: number })
-              .cache_creation_input_tokens || 0;
-          const thinkingTokens = (
-            event.usage as {
-              output_tokens_details?: { thinking_tokens?: number };
-            }
-          ).output_tokens_details?.thinking_tokens;
-          if (thinkingTokens != null) {
-            output.usage.reasoning = thinkingTokens;
+          // stop_reason is `StopReason | null`; mapping null lands in
+          // mapStopReason's default and yields "error", which convert.ts then
+          // treats as a poisoned turn and drops from the history entirely - so a
+          // fully streamed answer would silently vanish on the next request.
+          if (event.delta.stop_reason) {
+            output.stopReason = mapStopReason(event.delta.stop_reason);
           }
+
+          // Every usage field is nullable, and third-party gateways (baseUrl is
+          // caller-configurable) may omit the object outright. Only overwrite
+          // what is actually present - the values captured at message_start are
+          // the better fallback than zero, especially for the cache counters,
+          // which feed both cost and pricing-tier selection.
+          const usage = event.usage as
+            | {
+                input_tokens?: number | null;
+                output_tokens?: number | null;
+                cache_read_input_tokens?: number | null;
+                cache_creation_input_tokens?: number | null;
+                output_tokens_details?: { thinking_tokens?: number | null };
+              }
+            | undefined;
+
+          if (usage) {
+            if (usage.input_tokens != null) output.usage.input = usage.input_tokens;
+            if (usage.output_tokens != null) output.usage.output = usage.output_tokens;
+            if (usage.cache_read_input_tokens != null) {
+              output.usage.cacheRead = usage.cache_read_input_tokens;
+            }
+            if (usage.cache_creation_input_tokens != null) {
+              output.usage.cacheWrite = usage.cache_creation_input_tokens;
+            }
+            const thinkingTokens = usage.output_tokens_details?.thinking_tokens;
+            if (thinkingTokens != null) {
+              output.usage.reasoning = thinkingTokens;
+            }
+          }
+
           output.usage.totalTokens =
             output.usage.input +
             output.usage.output +
@@ -409,11 +468,19 @@ export function streamAnthropicOAuth(
       }
 
       if (options?.signal?.aborted) throw new Error("Request aborted");
-      stream.push({
-        type: "done",
-        reason: output.stopReason as "stop" | "length" | "toolUse",
-        message: output,
-      });
+      if (output.stopReason === "error") {
+        // Only reachable now via an unrecognized stop_reason string, which is a
+        // genuine error rather than a normal completion - don't dress it up as
+        // a "done" event whose declared reason it does not satisfy.
+        output.errorMessage ??= "Unrecognized stop reason from the API.";
+        stream.push({ type: "error", reason: "error", error: output });
+      } else {
+        stream.push({
+          type: "done",
+          reason: output.stopReason as "stop" | "length" | "toolUse",
+          message: output,
+        });
+      }
       stream.end();
     } catch (error) {
       for (const block of output.content as Array<{

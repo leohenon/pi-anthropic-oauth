@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildAnthropicSystemPrompt,
   PI_REWRITE_MODE_ENV,
   PI_REWRITE_PATTERN_ENV,
   sanitizeSurrogates,
@@ -99,4 +100,44 @@ test("invalid rewrite configuration fails clearly", () => {
     () => sanitizeSystemText("Pi", rewriteEnv("custom", "(")),
     /Invalid PI_ANTHROPIC_OAUTH_REWRITE_PATTERN/,
   );
+});
+
+test("rejects custom patterns that match the empty string", () => {
+  for (const pattern of ["//", "/(?:)/", "(?:)", "/a*/"]) {
+    assert.throws(
+      () =>
+        sanitizeSystemText("Use the read tool.", {
+          [PI_REWRITE_MODE_ENV]: "custom",
+          [PI_REWRITE_PATTERN_ENV]: pattern,
+        }),
+      /matches the empty string/,
+      `expected ${pattern} to be rejected`,
+    );
+  }
+});
+
+test("still accepts the documented never-matching pattern", () => {
+  assert.equal(
+    sanitizeSystemText("Use pi to build.", {
+      [PI_REWRITE_MODE_ENV]: "custom",
+      [PI_REWRITE_PATTERN_ENV]: "(?!)",
+    }),
+    "Use pi to build.",
+  );
+});
+
+test("repairs unpaired surrogates in the system prompt", () => {
+  const blocks = buildAnthropicSystemPrompt("Read \uD800 the docs", false);
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].text, "Read � the docs");
+  assert.doesNotThrow(() => JSON.stringify(blocks));
+});
+
+test("prepends the Claude Code identity only under OAuth", () => {
+  const oauth = buildAnthropicSystemPrompt("Some instructions", true);
+  assert.equal(oauth.length, 2);
+  assert.match(oauth[0].text, /^You are Claude Code/);
+
+  const apiKey = buildAnthropicSystemPrompt("Some instructions", false);
+  assert.equal(apiKey.length, 1);
 });

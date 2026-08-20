@@ -245,10 +245,35 @@ export function convertPiMessagesToAnthropic(
     }
   }
 
+  // The loop only flushes when it reaches the next user message, so a history
+  // that *ends* on an assistant turn with unresolved tool calls ships orphan
+  // tool_use blocks - which Anthropic rejects outright - and lands the tail on
+  // an assistant message, where no breakpoint can go. The comment above always
+  // promised this ("or finish the history"); the call was missing.
+  flushPendingToolResults();
+
+  // Anthropic only looks for a cache hit at an explicit breakpoint, so the tail
+  // of the history has to carry one. A plain-text user turn arrives as a bare
+  // string with nowhere to hang cache_control, which used to drop the message
+  // breakpoint entirely on the first request of every turn - exactly when the
+  // history is longest - leaving the whole conversation to be reprocessed
+  // uncached. Promote it to a single text block so the breakpoint always lands.
   const last = params.at(-1);
-  if (last?.role === "user" && Array.isArray(last.content) && last.content.length > 0) {
-    const lastBlock = last.content[last.content.length - 1] as { cache_control?: { type: string } };
-    lastBlock.cache_control = { type: "ephemeral" };
+  if (last?.role === "user") {
+    if (typeof last.content === "string") {
+      if (last.content) {
+        last.content = [
+          {
+            type: "text",
+            text: last.content,
+            cache_control: { type: "ephemeral" },
+          },
+        ];
+      }
+    } else if (last.content.length > 0) {
+      const lastBlock = last.content[last.content.length - 1] as { cache_control?: { type: string } };
+      lastBlock.cache_control = { type: "ephemeral" };
+    }
   }
 
   return params;

@@ -25,7 +25,49 @@ const INITIAL_RETRY_DELAY_MS = 5000;
 
 export { USER_AGENT };
 
-type ParsedAuthInput = { code: string; state: string };
+const MAX_RETRY_DELAY_MS = 30_000;
+const MANUAL_SETTLE_GRACE_MS = 10_000;
+
+class TokenHttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "TokenHttpError";
+  }
+}
+
+// Only network blips and server-side faults deserve the grace window on refresh.
+// A 400 invalid_grant (revoked session, rotated refresh token) never recovers.
+function isTransientTokenError(error: unknown): boolean {
+  if (error instanceof TokenHttpError) {
+    return error.status === 429 || error.status >= 500;
+  }
+  return true;
+}
+
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) {
+    return Math.min(Math.max(seconds, 0) * 1000, MAX_RETRY_DELAY_MS);
+  }
+  // RFC 9110 also allows an HTTP-date, which Number() turns into NaN - and
+  // setTimeout(NaN) fires immediately, hammering a server that just asked to
+  // be backed off.
+  const at = Date.parse(value);
+  if (Number.isNaN(at)) return undefined;
+  return Math.min(Math.max(at - Date.now(), 0), MAX_RETRY_DELAY_MS);
+}
+
+type ParsedAuthInput = {
+  code: string;
+  state: string;
+  // Origin+path the code was actually issued against, when the user pasted a
+  // full callback URL. The token exchange must echo the same redirect_uri.
+  redirectUri?: string;
+};
 type LocalAuthorization = {
   redirectUri: string;
   waitForCallback: () => Promise<string | null>;
@@ -45,67 +87,92 @@ export async function loginAnthropic(
   let authInput: string | null = null;
   let redirectUri = REDIRECT_URI;
 
+  // Only failure to *start* the local server is a reason to fall back to the
+  // manual paste flow. Everything after this point is a real error and must
+  // propagate - the old blanket catch swallowed cancellations and aborts too,
+  // which made the whole manualError path below dead code.
+  let localAuthorization: LocalAuthorization | null = null;
   try {
-    const localAuthorization = await createLocalAuthorization(state);
-    redirectUri = localAuthorization.redirectUri;
-
-    callbacks.onAuth({
-      url: makeAuthorizeUrl(challenge, state, redirectUri),
-      instructions:
-        "Complete login in your browser. If the browser is on another machine, paste the final redirect URL here.",
-    });
-
-    if (callbacks.onManualCodeInput) {
-      let manualInput: string | undefined;
-      let manualError: Error | undefined;
-      const manualPromise = callbacks
-        .onManualCodeInput()
-        .then((input) => {
-          manualInput = input;
-          localAuthorization.cancel();
-        })
-        .catch((err) => {
-          manualError =
-            err instanceof Error ? err : new Error(String(err));
-          localAuthorization.cancel();
-        });
-
-      const callbackResult = await localAuthorization.waitForCallback();
-
-      if (manualError) throw manualError;
-
-      if (callbackResult) {
-        authInput = callbackResult;
-      } else if (manualInput) {
-        authInput = manualInput;
-      }
-
-      if (!authInput) {
-        await manualPromise;
-        if (manualError) throw manualError;
-        if (manualInput) authInput = manualInput;
-      }
-    } else {
-      authInput = await localAuthorization.waitForCallback();
-    }
+    localAuthorization = await createLocalAuthorization(state);
   } catch {
+    localAuthorization = null;
+  }
+
+  try {
+    if (localAuthorization) {
+      const local = localAuthorization;
+      redirectUri = local.redirectUri;
+
+      callbacks.onAuth({
+        url: makeAuthorizeUrl(challenge, state, redirectUri),
+        instructions:
+          "Complete login in your browser. If the browser is on another machine, paste the final redirect URL here.",
+      });
+
+      if (callbacks.onManualCodeInput) {
+        let manualInput: string | undefined;
+        let manualError: Error | undefined;
+        const manualPromise = callbacks
+          .onManualCodeInput()
+          .then((input) => {
+            manualInput = input;
+            local.cancel();
+          })
+          .catch((err) => {
+            manualError =
+              err instanceof Error ? err : new Error(String(err));
+            local.cancel();
+          });
+
+        const callbackResult = await local.waitForCallback();
+
+        if (manualError) throw manualError;
+
+        if (callbackResult) {
+          authInput = callbackResult;
+        } else if (manualInput) {
+          authInput = manualInput;
+        }
+
+        if (!authInput) {
+          // The local callback timed out while the paste prompt is still open.
+          // Give it a moment to settle, but never block login forever on a
+          // prompt the user may have walked away from.
+          await Promise.race([manualPromise, settleGrace()]);
+          if (manualError) throw manualError;
+          if (manualInput) authInput = manualInput;
+        }
+      } else {
+        authInput = await local.waitForCallback();
+      }
+    }
+  } finally {
+    // Without this the HTTP server keeps listening and the 5-minute timer stays
+    // armed on every failure path: the process cannot exit, port 53692 stays
+    // bound, and a retried /login hits EADDRINUSE for the rest of the session.
+    localAuthorization?.cancel();
   }
 
   if (!authInput) {
-    redirectUri = REDIRECT_URI;
     callbacks.onAuth({
-      url: makeAuthorizeUrl(challenge, state, redirectUri),
+      url: makeAuthorizeUrl(challenge, state, REDIRECT_URI),
       instructions:
         "Sign in with Claude, then paste the full callback URL or the code#state value.",
     });
     authInput = await callbacks.onPrompt({
       message: "Paste the callback URL or code#state:",
     });
+    redirectUri = REDIRECT_URI;
   }
 
   const parsed = parseAuthInput(authInput);
   if (!parsed) throw new Error("Could not parse authorization callback input.");
   if (parsed.state !== state) throw new Error("OAuth state mismatch.");
+
+  // A user who completed the browser flow against the localhost URL before the
+  // fallback appeared holds a code issued for that redirect_uri; exchanging it
+  // under the default one fails with invalid_grant. Trust the pasted URL.
+  const exchangeRedirectUri = parsed.redirectUri ?? redirectUri;
 
   const tokenResponse = await fetchWithRetry(
     TOKEN_URL,
@@ -117,7 +184,7 @@ export async function loginAnthropic(
         client_id: CLIENT_ID,
         code: parsed.code,
         state: parsed.state,
-        redirect_uri: redirectUri,
+        redirect_uri: exchangeRedirectUri,
         code_verifier: verifier,
       }),
       signal: callbacks.signal,
@@ -156,11 +223,15 @@ export async function refreshAnthropicToken(
       },
       "Token refresh",
     );
-  } catch {
-    if (credentials.expires > Date.now()) {
+  } catch (error) {
+    // A permanently rejected refresh token must surface so the user is asked to
+    // log in again. Extending the grace window on it produces an endless
+    // 30-second retry loop against a credential that will never work.
+    if (isTransientTokenError(error) && credentials.expires > Date.now()) {
       return { ...credentials, expires: Date.now() + 30_000 };
     }
-    throw new Error("Token refresh failed and token has expired.");
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Token refresh failed: ${detail}`);
   }
 
   const data = (await response.json()) as {
@@ -209,28 +280,31 @@ async function fetchWithRetry(
 
     const bodyText = await response.text();
 
+    const failure = new TokenHttpError(
+      `${label} failed: ${response.status} ${bodyText}`,
+      response.status,
+    );
+
     const shouldRetry = response.headers.get("x-should-retry");
-    if (shouldRetry === "false") {
-      throw new Error(`${label} failed: ${response.status} ${bodyText}`);
-    }
+    if (shouldRetry === "false") throw failure;
 
     if (
       attempt < MAX_TOKEN_RETRIES &&
       (response.status === 429 || response.status >= 500)
     ) {
-      const retryAfter = response.headers.get("retry-after");
-      const delayMs = retryAfter
-        ? Math.min(Number(retryAfter) * 1000, 30_000)
-        : INITIAL_RETRY_DELAY_MS * 2 ** attempt;
+      const delayMs =
+        parseRetryAfter(response.headers.get("retry-after")) ??
+        INITIAL_RETRY_DELAY_MS * 2 ** attempt;
 
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
-      lastError = new Error(
-        `${label} failed: ${response.status} ${bodyText}`,
-      );
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, delayMs);
+        timer.unref?.();
+      });
+      lastError = failure;
       continue;
     }
 
-    throw new Error(`${label} failed: ${response.status} ${bodyText}`);
+    throw failure;
   }
 
   throw lastError ?? new Error(`${label} failed after retries`);
@@ -249,6 +323,7 @@ async function createLocalAuthorization(
 
   return new Promise((resolve, reject) => {
     let done = false;
+    let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let complete!: (value: string | null) => void;
     const wait = new Promise<string | null>((innerResolve) => {
@@ -287,9 +362,11 @@ async function createLocalAuthorization(
       }
 
       if (gotState !== state) {
+        // Reject the request but keep waiting. Aborting here let any local
+        // process - or any page in the user's browser, since this is a plain
+        // unauthenticated GET - cancel a login in flight with one bogus state.
         res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
         res.end("Invalid state");
-        finish(null);
         return;
       }
 
@@ -301,10 +378,23 @@ async function createLocalAuthorization(
       finish(url.toString());
     });
 
-    server.once("error", reject);
+    // `once` would both hide every post-listen error (the promise is already
+    // settled, so reject is a no-op) and consume the only handler - leaving a
+    // second 'error' event to crash the host Pi process as an unhandled event.
+    server.on("error", (error) => {
+      if (done || settled) {
+        finish(null);
+        return;
+      }
+      settled = true;
+      reject(error);
+    });
 
     server.listen(CALLBACK_PORT, CALLBACK_HOST, () => {
+      settled = true;
       timer = setTimeout(() => finish(null), LOCAL_CALLBACK_TIMEOUT);
+      // Never hold the event loop open on a login the user has abandoned.
+      timer.unref?.();
       resolve({
         redirectUri: `http://localhost:${CALLBACK_PORT}/callback`,
         waitForCallback: () => wait,
@@ -323,6 +413,13 @@ function makeCallbackPage(): string {
     <p>You can close this window and return to Pi.</p>
   </body>
 </html>`;
+}
+
+function settleGrace(): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, MANUAL_SETTLE_GRACE_MS);
+    timer.unref?.();
+  });
 }
 
 async function generatePKCE(): Promise<{
@@ -357,7 +454,9 @@ function parseAuthInput(input: string): ParsedAuthInput | null {
     const url = new URL(text);
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
-    if (code && state) return { code, state };
+    if (code && state) {
+      return { code, state, redirectUri: `${url.origin}${url.pathname}` };
+    }
   } catch {}
 
   const split = text.split("#");

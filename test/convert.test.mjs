@@ -186,3 +186,172 @@ test("converts unsigned thinking to text and preserves tool-use ordering", () =>
     },
   ]);
 });
+
+test("puts a cache breakpoint on a plain-text user turn", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [{ role: "user", content: "Explain this repo", timestamp: 0 }],
+    true,
+    activeModel,
+  );
+
+  assert.deepEqual(converted, [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "Explain this repo",
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    },
+  ]);
+});
+
+test("puts a cache breakpoint on the last block of a structured user turn", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "first" },
+          { type: "text", text: "second" },
+        ],
+        timestamp: 0,
+      },
+    ],
+    true,
+    activeModel,
+  );
+
+  assert.deepEqual(converted[0].content, [
+    { type: "text", text: "first" },
+    { type: "text", text: "second", cache_control: { type: "ephemeral" } },
+  ]);
+});
+
+test("breaks the cache only at the tail of the history", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [
+      { role: "user", content: "first question", timestamp: 0 },
+      assistant([{ type: "text", text: "first answer" }]),
+      { role: "user", content: "second question", timestamp: 0 },
+    ],
+    true,
+    activeModel,
+  );
+
+  assert.equal(converted.length, 3);
+  // Earlier turns stay bare strings; only the tail carries the breakpoint.
+  assert.equal(converted[0].content, "first question");
+  assert.deepEqual(converted[2].content, [
+    {
+      type: "text",
+      text: "second question",
+      cache_control: { type: "ephemeral" },
+    },
+  ]);
+});
+
+test("puts a cache breakpoint on a tool-result turn", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [
+      assistant([
+        { type: "toolCall", id: "tool-1", name: "read", arguments: { path: "a" } },
+        { type: "toolCall", id: "tool-2", name: "read", arguments: { path: "b" } },
+      ]),
+      {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "read",
+        content: [{ type: "text", text: "a contents" }],
+        isError: false,
+        timestamp: 0,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tool-2",
+        toolName: "read",
+        content: [{ type: "text", text: "b contents" }],
+        isError: false,
+        timestamp: 0,
+      },
+    ],
+    true,
+    activeModel,
+  );
+
+  const results = converted[1].content;
+  assert.equal(results.length, 2);
+  assert.equal(results[0].cache_control, undefined);
+  assert.deepEqual(results[1].cache_control, { type: "ephemeral" });
+});
+
+test("sanitizes surrogates before promoting a user string to a block", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [{ role: "user", content: "lone \uD800 half", timestamp: 0 }],
+    true,
+    activeModel,
+  );
+
+  assert.deepEqual(converted[0].content, [
+    {
+      type: "text",
+      text: "lone � half",
+      cache_control: { type: "ephemeral" },
+    },
+  ]);
+});
+
+test("emits no breakpoint when the tail is an assistant turn", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [assistant([{ type: "text", text: "trailing answer" }])],
+    true,
+    activeModel,
+  );
+
+  assert.deepEqual(converted[0].content, [
+    { type: "text", text: "trailing answer" },
+  ]);
+});
+
+test("synthesizes tool results for a history ending on an unresolved tool call", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [
+      { role: "user", content: "do it", timestamp: 0 },
+      assistant([
+        { type: "toolCall", id: "t1", name: "read", arguments: { path: "a" } },
+      ]),
+    ],
+    true,
+    activeModel,
+  );
+
+  // The orphan tool_use must be answered, or Anthropic rejects the request.
+  assert.equal(converted.length, 3);
+  assert.deepEqual(converted[2], {
+    role: "user",
+    content: [
+      {
+        type: "tool_result",
+        tool_use_id: "t1",
+        content: "No result provided",
+        is_error: true,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+  });
+});
+
+test("keeps the assistant tail bare when it has no pending tool calls", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [assistant([{ type: "text", text: "trailing answer" }])],
+    true,
+    activeModel,
+  );
+
+  assert.equal(converted.length, 1);
+  assert.deepEqual(converted[0].content, [
+    { type: "text", text: "trailing answer" },
+  ]);
+});

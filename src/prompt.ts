@@ -57,7 +57,14 @@ export function buildAnthropicSystemPrompt(
     });
   }
 
-  const sanitized = systemPrompt ? sanitizeSystemText(systemPrompt) : "";
+  // Repair surrogates before rewriting so the regex runs on well-formed text.
+  // Every other outbound string goes through sanitizeSurrogates in convert.ts;
+  // the system prompt was the one that did not, and an unpaired surrogate in it
+  // (a truncated emoji in project instructions, a file excerpt cut mid-codepoint)
+  // fails the request at JSON.stringify.
+  const sanitized = systemPrompt
+    ? sanitizeSystemText(sanitizeSurrogates(systemPrompt))
+    : "";
   if (sanitized) {
     blocks.push({
       type: "text",
@@ -109,12 +116,29 @@ function compileCustomPiRewritePattern(value: string | undefined): RegExp {
 
   const parsed = parseRegexLiteral(pattern) ?? { source: pattern, flags: "" };
   const flags = parsed.flags.includes("g") ? parsed.flags : `${parsed.flags}g`;
+
+  let compiled: RegExp;
   try {
-    return new RegExp(parsed.source, flags);
+    compiled = new RegExp(parsed.source, flags);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid ${PI_REWRITE_PATTERN_ENV}: ${message}`);
   }
+
+  // A pattern that matches the empty string replaces at every position and
+  // shreds the system prompt into alternating replacement text. `//`, `/(?:)/`
+  // and a bare `(?:)` all land here - and `(?:)` is one keystroke away from the
+  // `(?!)` this project documents for disabling rewrites, so the typo is easy
+  // to make and its damage is silent.
+  const matchesEmpty = compiled.test("");
+  compiled.lastIndex = 0;
+  if (matchesEmpty) {
+    throw new Error(
+      `Invalid ${PI_REWRITE_PATTERN_ENV}: ${value} matches the empty string, which would replace at every position. Use a never-matching pattern such as (?!) to disable rewriting.`,
+    );
+  }
+
+  return compiled;
 }
 
 function parseRegexLiteral(value: string): { source: string; flags: string } | undefined {
