@@ -16,7 +16,9 @@ const SCOPES = [
   "user:mcp_servers",
   "user:file_upload",
 ].join(" ");
-const USER_AGENT = "claude-code/2.1.97";
+const CLAUDE_CODE_VERSION_ENV = "PI_ANTHROPIC_OAUTH_CLAUDE_CODE_VERSION";
+const DEFAULT_CLAUDE_CODE_VERSION = "2.1.251";
+const USER_AGENT = makeClaudeCodeUserAgent();
 const CALLBACK_PORT = 53692;
 const CALLBACK_HOST = "127.0.0.1";
 const LOCAL_CALLBACK_TIMEOUT = 5 * 60 * 1000;
@@ -24,6 +26,14 @@ const MAX_TOKEN_RETRIES = 2;
 const INITIAL_RETRY_DELAY_MS = 5000;
 
 export { USER_AGENT };
+
+export function makeClaudeCodeUserAgent(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const version =
+    env[CLAUDE_CODE_VERSION_ENV]?.trim() || DEFAULT_CLAUDE_CODE_VERSION;
+  return `claude-code/${version}`;
+}
 
 type ParsedAuthInput = { code: string; state: string };
 type LocalAuthorization = {
