@@ -11,7 +11,11 @@ import {
   type SimpleStreamOptions,
   type StopReason,
 } from "@earendil-works/pi-ai";
-import { isClaudeOAuthAccessToken, USER_AGENT } from "./auth.js";
+import {
+  buildOAuthUserId,
+  isClaudeOAuthAccessToken,
+  USER_AGENT,
+} from "./auth.js";
 import {
   convertPiMessagesToAnthropic,
   convertPiToolsToAnthropic,
@@ -31,6 +35,28 @@ const REQUIRED_BETAS = [
   // tool JSON, guaranteeing well-formed, correctly-structured input.
   "interleaved-thinking-2025-05-14",
 ] as const;
+
+/**
+ * Premium OAuth models reject budget-based thinking intermittently with a
+ * 529 `overloaded_error`; the stable shape is adaptive thinking plus an
+ * `output_config.effort` level, mirroring Claude Code. Haiku models do not
+ * support the `effort` parameter and keep budget-based thinking.
+ */
+function supportsEffortBasedThinking(model: Model<Api>): boolean {
+  return !model.id.toLowerCase().includes("haiku");
+}
+
+function mapReasoningToEffort(reasoning: string): string {
+  switch (reasoning) {
+    case "minimal":
+    case "low":
+      return "low";
+    case "medium":
+      return "medium";
+    default:
+      return "high";
+  }
+}
 
 function mapStopReason(reason: string | null | undefined): StopReason {
   switch (reason) {
@@ -154,25 +180,40 @@ export function streamAnthropicOAuth(
       if (context.tools?.length)
         params.tools = convertPiToolsToAnthropic(context.tools, isOAuth);
 
-      if (options?.reasoning && model.reasoning && maxTokens > 1) {
-        const defaultBudgets: Record<string, number> = {
-          minimal: 1024,
-          low: 4096,
-          medium: 10240,
-          high: 20480,
-          xhigh: 32000,
-        };
-        const customBudget =
-          options.thinkingBudgets?.[
-            options.reasoning as keyof typeof options.thinkingBudgets
-          ];
-        const requestedBudget =
-          customBudget ?? defaultBudgets[options.reasoning] ?? 10240;
+      if (isOAuth) {
+        const userId = await buildOAuthUserId(apiKey);
+        if (userId) params.metadata = { user_id: userId };
+      }
 
-        params.thinking = {
-          type: "enabled",
-          budget_tokens: Math.min(requestedBudget, maxTokens - 1),
-        };
+      if (options?.reasoning && model.reasoning && maxTokens > 1) {
+        if (isOAuth && supportsEffortBasedThinking(model)) {
+          params.thinking = {
+            type: "adaptive",
+            display: "omitted",
+          } as never;
+          (params as { output_config?: { effort: string } }).output_config = {
+            effort: mapReasoningToEffort(options.reasoning),
+          };
+        } else {
+          const defaultBudgets: Record<string, number> = {
+            minimal: 1024,
+            low: 4096,
+            medium: 10240,
+            high: 20480,
+            xhigh: 32000,
+          };
+          const customBudget =
+            options.thinkingBudgets?.[
+              options.reasoning as keyof typeof options.thinkingBudgets
+            ];
+          const requestedBudget =
+            customBudget ?? defaultBudgets[options.reasoning] ?? 10240;
+
+          params.thinking = {
+            type: "enabled",
+            budget_tokens: Math.min(requestedBudget, maxTokens - 1),
+          };
+        }
       }
 
       // Raw stream instead of the MessageStream helper: MessageStream

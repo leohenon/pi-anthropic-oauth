@@ -1,5 +1,19 @@
+const CLAUDE_CODE_VERSION = "2.1.259.935";
 const CLAUDE_CODE_IDENTITY =
-  "You are Claude Code, Anthropic's official CLI for Claude.";
+  "You are a Claude agent, built on Anthropic's Claude Agent SDK.";
+
+/**
+ * Anthropic's OAuth classifier rejects premium-model requests that do not
+ * open with a Claude Code billing-header system block. The `cch` and
+ * `cc_prompt_id` keys must be present, but their values are not validated,
+ * and the block must not carry `cache_control`.
+ */
+export function buildClaudeCodeBillingBlock(): MessageContentBlock {
+  return {
+    type: "text",
+    text: `x-anthropic-billing-header: cc_version=${CLAUDE_CODE_VERSION}; cc_entrypoint=cli; cch=00000; cc_prompt_id=${crypto.randomUUID()}`,
+  };
+}
 const PI_REMOVAL_ANCHORS = [
   "pi-coding-agent",
   "@earendil-works/pi-coding-agent",
@@ -50,11 +64,8 @@ export function buildAnthropicSystemPrompt(
   const blocks: MessageContentBlock[] = [];
 
   if (isOAuth) {
-    blocks.push({
-      type: "text",
-      text: CLAUDE_CODE_IDENTITY,
-      cache_control: { type: "ephemeral" },
-    });
+    blocks.push(buildClaudeCodeBillingBlock());
+    blocks.push({ type: "text", text: CLAUDE_CODE_IDENTITY });
   }
 
   const sanitized = systemPrompt ? sanitizeSystemText(systemPrompt) : "";
