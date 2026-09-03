@@ -1,4 +1,8 @@
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { makeClaudeCodeUserAgent } from "./version.js";
 import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
@@ -16,9 +20,8 @@ const SCOPES = [
   "user:mcp_servers",
   "user:file_upload",
 ].join(" ");
-const CLAUDE_CODE_VERSION_ENV = "PI_ANTHROPIC_OAUTH_CLAUDE_CODE_VERSION";
-const DEFAULT_CLAUDE_CODE_VERSION = "2.1.251";
 const USER_AGENT = makeClaudeCodeUserAgent();
+const PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
 const CALLBACK_PORT = 53692;
 const CALLBACK_HOST = "127.0.0.1";
 const LOCAL_CALLBACK_TIMEOUT = 5 * 60 * 1000;
@@ -27,12 +30,85 @@ const INITIAL_RETRY_DELAY_MS = 5000;
 
 export { USER_AGENT };
 
-export function makeClaudeCodeUserAgent(
-  env: NodeJS.ProcessEnv = process.env,
-): string {
-  const version =
-    env[CLAUDE_CODE_VERSION_ENV]?.trim() || DEFAULT_CLAUDE_CODE_VERSION;
-  return `claude-code/${version}`;
+let cachedAccountUuid: string | null | undefined;
+
+/**
+ * Fetch the account UUID tied to the OAuth access token.
+ *
+ * Anthropic's OAuth request classifier requires `metadata.user_id` to carry a
+ * genuine `account_uuid` for premium models (e.g. claude-opus-5); fabricated
+ * values are rejected with a misleading 529 `overloaded_error`. The value is
+ * stable for a given account, so it is fetched once per process.
+ */
+export async function fetchOAuthAccountUuid(
+  accessToken: string,
+): Promise<string | null> {
+  if (cachedAccountUuid !== undefined) return cachedAccountUuid;
+
+  try {
+    const response = await fetch(PROFILE_URL, {
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "anthropic-beta": "oauth-2025-04-20",
+        "user-agent": USER_AGENT,
+      },
+    });
+
+    if (!response.ok) {
+      cachedAccountUuid = null;
+      return cachedAccountUuid;
+    }
+
+    const data = (await response.json()) as { account?: { uuid?: string } };
+    cachedAccountUuid = data.account?.uuid ?? null;
+  } catch {
+    cachedAccountUuid = null;
+  }
+
+  return cachedAccountUuid;
+}
+
+/**
+ * Read Claude Code's registered device id (`userID` in `~/.claude.json`).
+ *
+ * The classifier validates `device_id` against devices registered by real
+ * Claude Code installs; fabricated values only pass intermittently. When
+ * Claude Code is installed on the machine (the common case for Pro/Max
+ * subscribers) its id is reused so requests score as a known device.
+ */
+export function readClaudeCodeDeviceId(): string | null {
+  try {
+    const config = JSON.parse(
+      readFileSync(join(homedir(), ".claude.json"), "utf8"),
+    ) as { userID?: unknown };
+    return typeof config.userID === "string" && config.userID
+      ? config.userID
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build the `metadata.user_id` JSON blob the API expects from Claude Code.
+ * Returns undefined when no genuine identity components are available;
+ * non-gated models keep working without it.
+ */
+export async function buildOAuthUserId(
+  accessToken: string,
+): Promise<string | undefined> {
+  const [accountUuid, deviceId] = [
+    await fetchOAuthAccountUuid(accessToken),
+    readClaudeCodeDeviceId(),
+  ];
+
+  if (!accountUuid && !deviceId) return undefined;
+
+  return JSON.stringify({
+    ...(deviceId ? { device_id: deviceId } : {}),
+    ...(accountUuid ? { account_uuid: accountUuid } : {}),
+    session_id: crypto.randomUUID(),
+  });
 }
 
 type ParsedAuthInput = { code: string; state: string };

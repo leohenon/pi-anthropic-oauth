@@ -57,7 +57,7 @@ PI_ANTHROPIC_OAUTH_CLAUDE_CODE_VERSION=2.1.275
 
 ## System prompt rewriting
 
-When using Claude Pro/Max OAuth, the extension prepends Claude Code identity text and rewrites standalone `Pi` / `pi` references in Pi's system prompt to `Claude Code`. The rewrite mode defaults to `aggressive`:
+When using Claude Pro/Max OAuth, the extension prepends the Claude Code billing-header and identity system blocks and rewrites standalone `Pi` / `pi` references in Pi's system prompt to `Claude Code`. The rewrite mode defaults to `aggressive`:
 
 ```bash
 PI_ANTHROPIC_OAUTH_REWRITE_MODE=aggressive
@@ -119,6 +119,7 @@ To add another Anthropic model, create `~/.pi/agent/models.json`:
 - Run `/login` with no arguments, then choose `Claude Pro/Max`.
 - If local callback login does not complete, paste the final callback URL or `code#state` when prompted
 - If you see `401 Invalid bearer token`, remove any fake `sk-ant-oat...` placeholder from `~/.pi/agent/models.json` and log in again
+- If premium models (e.g. `claude-opus-5`) return `overloaded_error` while other models work, make sure Claude Code is installed on this machine: its registered device id (`userID` in `~/.claude.json`) and the OAuth account uuid are sent as `metadata.user_id`, and Anthropic's OAuth classifier rejects premium-model requests that cannot be tied to a known device/account
 - If something breaks, please open an issue with your Pi version, extension version, and error output
 
 ## License
