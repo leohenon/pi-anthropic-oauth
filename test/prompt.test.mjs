@@ -86,7 +86,7 @@ function rewriteEnv(mode, pattern) {
 
 test("default rewrite mode remains aggressive", () => {
   assert.equal(
-    sanitizeSystemText("Work in /srv/dev/pi-foo.\n\nPi can use pi."),
+    sanitizeSystemText("Work in /srv/dev/pi-foo.\n\nPi can use pi.", {}),
     "Work in /srv/dev/Claude Code-foo.\n\nClaude Code can use Claude Code.",
   );
 });
