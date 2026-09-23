@@ -1,11 +1,59 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildAnthropicSystemPrompt,
   PI_REWRITE_MODE_ENV,
   PI_REWRITE_PATTERN_ENV,
   sanitizeSurrogates,
   sanitizeSystemText,
 } from "../.test-dist/prompt.js";
+
+test("OAuth system prompt opens with a Claude Code billing block", () => {
+  const blocks = buildAnthropicSystemPrompt("You are a coding agent.", true);
+
+  assert.equal(blocks.length, 3);
+  const billing = blocks[0];
+  assert.equal(billing.type, "text");
+  assert.match(billing.text, /^x-anthropic-billing-header: /);
+  assert.match(billing.text, /cc_version=/);
+  assert.match(billing.text, /cc_entrypoint=cli/);
+  assert.match(billing.text, /cch=/);
+  assert.match(
+    billing.text,
+    /cc_prompt_id=[0-9a-f-]{36}$/,
+  );
+  assert.equal(billing.cache_control, undefined);
+});
+
+test("OAuth identity block uses the current Claude Code wording", () => {
+  const blocks = buildAnthropicSystemPrompt("You are a coding agent.", true);
+
+  const identity = blocks[1];
+  assert.equal(identity.type, "text");
+  assert.equal(
+    identity.text,
+    "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+  );
+  assert.equal(identity.cache_control, undefined);
+});
+
+test("sanitized system prompt keeps its cache_control marker", () => {
+  const blocks = buildAnthropicSystemPrompt("You are a coding agent.", true);
+
+  assert.deepEqual(blocks[2], {
+    type: "text",
+    text: "You are a coding agent.",
+    cache_control: { type: "ephemeral" },
+  });
+});
+
+test("non-OAuth requests skip billing and identity blocks", () => {
+  const blocks = buildAnthropicSystemPrompt("You are a coding agent.", false);
+
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].text, "You are a coding agent.");
+  assert.deepEqual(blocks[0].cache_control, { type: "ephemeral" });
+});
 
 test("preserves valid surrogate pairs (non-BMP characters)", () => {
   assert.equal(sanitizeSurrogates("\u{1F680}"), "\u{1F680}");
@@ -38,7 +86,7 @@ function rewriteEnv(mode, pattern) {
 
 test("default rewrite mode remains aggressive", () => {
   assert.equal(
-    sanitizeSystemText("Work in /srv/dev/pi-foo.\n\nPi can use pi."),
+    sanitizeSystemText("Work in /srv/dev/pi-foo.\n\nPi can use pi.", {}),
     "Work in /srv/dev/Claude Code-foo.\n\nClaude Code can use Claude Code.",
   );
 });
