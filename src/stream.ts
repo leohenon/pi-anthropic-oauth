@@ -5,11 +5,15 @@ import {
   type AssistantMessage,
   type AssistantMessageEventStream,
   calculateCost,
-  type Context,
+  collapseSystemMessages,
   createAssistantMessageEventStream,
+  getCurrentSystemPrompt,
+  getCurrentTools,
+  type JsonObject,
   type Model,
   type SimpleStreamOptions,
   type StopReason,
+  type TranscriptContext,
 } from "@earendil-works/pi-ai";
 import { isClaudeOAuthAccessToken, USER_AGENT } from "./auth.js";
 import {
@@ -94,10 +98,18 @@ function makeDefaultHeaders(
 
 export function streamAnthropicOAuth(
   model: Model<Api>,
-  context: Context,
+  context: TranscriptContext,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
   const stream = createAssistantMessageEventStream();
+
+  // Anthropic has no mid-conversation system messages: fold system-message
+  // patches into the leading system message, then read the current prompt and
+  // tool declarations from the transcript (pi >= 0.86 no longer provides
+  // context.systemPrompt / context.tools).
+  const transcript = collapseSystemMessages(context);
+  const tools = getCurrentTools(transcript.messages);
+  const systemPrompt = getCurrentSystemPrompt(transcript.messages);
 
   void (async () => {
     const output: AssistantMessage = {
@@ -144,15 +156,15 @@ export function streamAnthropicOAuth(
 
       const params: MessageCreateParamsStreaming = {
         model: model.id,
-        messages: convertPiMessagesToAnthropic(context.messages, isOAuth, model),
+        messages: convertPiMessagesToAnthropic(transcript.messages, isOAuth, model),
         max_tokens: maxTokens,
         stream: true,
       };
 
-      const system = buildAnthropicSystemPrompt(context.systemPrompt, isOAuth);
+      const system = buildAnthropicSystemPrompt(systemPrompt, isOAuth);
       if (system) params.system = system as never;
-      if (context.tools?.length)
-        params.tools = convertPiToolsToAnthropic(context.tools, isOAuth);
+      if (tools.length)
+        params.tools = convertPiToolsToAnthropic(tools, isOAuth);
 
       if (options?.reasoning && model.reasoning && maxTokens > 1) {
         const defaultBudgets: Record<string, number> = {
@@ -297,7 +309,7 @@ export function streamAnthropicOAuth(
               name: isOAuth
                 ? fromClaudeCodeToolName(
                     event.content_block.name,
-                    context.tools,
+                    tools,
                   )
                 : event.content_block.name,
               arguments: {},
@@ -351,10 +363,7 @@ export function streamAnthropicOAuth(
           ) {
             block.partialJson += event.delta.partial_json;
             try {
-              block.arguments = JSON.parse(block.partialJson) as Record<
-                string,
-                unknown
-              >;
+              block.arguments = JSON.parse(block.partialJson) as JsonObject;
             } catch {}
             stream.push({
               type: "toolcall_delta",
@@ -390,10 +399,7 @@ export function streamAnthropicOAuth(
             });
           } else if (block.type === "toolCall") {
             try {
-              block.arguments = JSON.parse(block.partialJson) as Record<
-                string,
-                unknown
-              >;
+              block.arguments = JSON.parse(block.partialJson) as JsonObject;
             } catch {}
             delete (block as { partialJson?: string }).partialJson;
             stream.push({
