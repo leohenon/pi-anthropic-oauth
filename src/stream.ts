@@ -15,7 +15,11 @@ import {
   type StopReason,
   type TranscriptContext,
 } from "@earendil-works/pi-ai";
-import { isClaudeOAuthAccessToken, USER_AGENT } from "./auth.js";
+import {
+  buildOAuthUserId,
+  isClaudeOAuthAccessToken,
+  USER_AGENT,
+} from "./auth.js";
 import {
   convertPiMessagesToAnthropic,
   convertPiToolsToAnthropic,
@@ -165,6 +169,11 @@ export function streamAnthropicOAuth(
       if (system) params.system = system as never;
       if (tools.length)
         params.tools = convertPiToolsToAnthropic(tools, isOAuth);
+
+      if (isOAuth) {
+        const userId = await buildOAuthUserId(apiKey);
+        if (userId) params.metadata = { user_id: userId };
+      }
 
       if (options?.reasoning && model.reasoning && maxTokens > 1) {
         const defaultBudgets: Record<string, number> = {
