@@ -3,6 +3,7 @@ import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
 } from "@earendil-works/pi-ai";
+import { makeClaudeCodeUserAgent } from "./version.js";
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
 const AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
@@ -16,8 +17,6 @@ const SCOPES = [
   "user:mcp_servers",
   "user:file_upload",
 ].join(" ");
-const CLAUDE_CODE_VERSION_ENV = "PI_ANTHROPIC_OAUTH_CLAUDE_CODE_VERSION";
-const DEFAULT_CLAUDE_CODE_VERSION = "2.1.251";
 const USER_AGENT = makeClaudeCodeUserAgent();
 const CALLBACK_PORT = 53692;
 const CALLBACK_HOST = "127.0.0.1";
@@ -26,14 +25,6 @@ const MAX_TOKEN_RETRIES = 2;
 const INITIAL_RETRY_DELAY_MS = 5000;
 
 export { USER_AGENT };
-
-export function makeClaudeCodeUserAgent(
-  env: NodeJS.ProcessEnv = process.env,
-): string {
-  const version =
-    env[CLAUDE_CODE_VERSION_ENV]?.trim() || DEFAULT_CLAUDE_CODE_VERSION;
-  return `claude-code/${version}`;
-}
 
 type ParsedAuthInput = { code: string; state: string };
 type LocalAuthorization = {
