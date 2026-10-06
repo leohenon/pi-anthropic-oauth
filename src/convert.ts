@@ -245,10 +245,30 @@ export function convertPiMessagesToAnthropic(
     }
   }
 
+  // The loop flushes pending tool uses before the next message. Flush once more
+  // so a history ending on an unresolved tool call is still valid.
+  flushPendingToolResults();
+
+  // Anthropic prompt caching requires an explicit breakpoint. Plain-text user
+  // turns must be promoted to a block so there is somewhere to attach it.
   const last = params.at(-1);
-  if (last?.role === "user" && Array.isArray(last.content) && last.content.length > 0) {
-    const lastBlock = last.content[last.content.length - 1] as { cache_control?: { type: string } };
-    lastBlock.cache_control = { type: "ephemeral" };
+  if (last?.role === "user") {
+    if (typeof last.content === "string") {
+      if (last.content) {
+        last.content = [
+          {
+            type: "text",
+            text: last.content,
+            cache_control: { type: "ephemeral" },
+          },
+        ];
+      }
+    } else if (last.content.length > 0) {
+      const lastBlock = last.content[last.content.length - 1] as {
+        cache_control?: { type: string };
+      };
+      lastBlock.cache_control = { type: "ephemeral" };
+    }
   }
 
   return params;

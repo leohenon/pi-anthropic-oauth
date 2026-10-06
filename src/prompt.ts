@@ -70,7 +70,9 @@ export function buildAnthropicSystemPrompt(
     blocks.push({ type: "text", text: CLAUDE_CODE_IDENTITY });
   }
 
-  const sanitized = systemPrompt ? sanitizeSystemText(systemPrompt) : "";
+  const sanitized = systemPrompt
+    ? sanitizeSystemText(sanitizeSurrogates(systemPrompt))
+    : "";
   if (sanitized) {
     blocks.push({
       type: "text",
@@ -93,10 +95,11 @@ export function sanitizeSystemText(
     return !PI_REMOVAL_ANCHORS.some((anchor) => paragraph.includes(anchor));
   });
 
-  return filtered
-    .join("\n\n")
-    .replace(resolvePiRewritePattern(env), "Claude Code")
-    .trim();
+  const filteredText = filtered.join("\n\n");
+  const rewritePattern = resolvePiRewritePattern(env);
+  rejectZeroLengthMatches(rewritePattern, filteredText);
+
+  return filteredText.replace(rewritePattern, "Claude Code").trim();
 }
 
 function resolvePiRewritePattern(env: NodeJS.ProcessEnv): RegExp {
@@ -122,12 +125,30 @@ function compileCustomPiRewritePattern(value: string | undefined): RegExp {
 
   const parsed = parseRegexLiteral(pattern) ?? { source: pattern, flags: "" };
   const flags = parsed.flags.includes("g") ? parsed.flags : `${parsed.flags}g`;
+  let compiled: RegExp;
   try {
-    return new RegExp(parsed.source, flags);
+    compiled = new RegExp(parsed.source, flags);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid ${PI_REWRITE_PATTERN_ENV}: ${message}`);
   }
+
+  rejectZeroLengthMatches(compiled, "");
+  return compiled;
+}
+
+function rejectZeroLengthMatches(pattern: RegExp, text: string): void {
+  pattern.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match[0].length === 0) {
+      pattern.lastIndex = 0;
+      throw new Error(
+        `Invalid ${PI_REWRITE_PATTERN_ENV}: the pattern can match without consuming text. Use (?!) to disable rewriting.`,
+      );
+    }
+  }
+  pattern.lastIndex = 0;
 }
 
 function parseRegexLiteral(value: string): { source: string; flags: string } | undefined {

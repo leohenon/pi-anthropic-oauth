@@ -186,3 +186,123 @@ test("converts unsigned thinking to text and preserves tool-use ordering", () =>
     },
   ]);
 });
+
+test("puts a cache breakpoint on a plain-text user turn", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [{ role: "user", content: "Explain this repo", timestamp: 0 }],
+    true,
+    activeModel,
+  );
+
+  assert.deepEqual(converted, [
+    {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: "Explain this repo",
+          cache_control: { type: "ephemeral" },
+        },
+      ],
+    },
+  ]);
+});
+
+test("puts the cache breakpoint only on the history tail", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [
+      { role: "user", content: "first question", timestamp: 0 },
+      assistant([{ type: "text", text: "first answer" }]),
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "second" },
+          { type: "text", text: "question" },
+        ],
+        timestamp: 0,
+      },
+    ],
+    true,
+    activeModel,
+  );
+
+  assert.equal(converted[0].content, "first question");
+  assert.deepEqual(converted[2].content, [
+    { type: "text", text: "second" },
+    {
+      type: "text",
+      text: "question",
+      cache_control: { type: "ephemeral" },
+    },
+  ]);
+});
+
+test("puts a cache breakpoint on the last tool result", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [
+      assistant([
+        { type: "toolCall", id: "tool-1", name: "read", arguments: {} },
+        { type: "toolCall", id: "tool-2", name: "read", arguments: {} },
+      ]),
+      {
+        role: "toolResult",
+        toolCallId: "tool-1",
+        toolName: "read",
+        content: [{ type: "text", text: "one" }],
+        isError: false,
+        timestamp: 0,
+      },
+      {
+        role: "toolResult",
+        toolCallId: "tool-2",
+        toolName: "read",
+        content: [{ type: "text", text: "two" }],
+        isError: false,
+        timestamp: 0,
+      },
+    ],
+    true,
+    activeModel,
+  );
+
+  assert.equal(converted[1].content[0].cache_control, undefined);
+  assert.deepEqual(converted[1].content[1].cache_control, {
+    type: "ephemeral",
+  });
+});
+
+test("synthesizes results for trailing unresolved tool calls", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [
+      { role: "user", content: "do it", timestamp: 0 },
+      assistant([
+        { type: "toolCall", id: "tool-1", name: "read", arguments: {} },
+      ]),
+    ],
+    true,
+    activeModel,
+  );
+
+  assert.deepEqual(converted.at(-1), {
+    role: "user",
+    content: [
+      {
+        type: "tool_result",
+        tool_use_id: "tool-1",
+        content: "No result provided",
+        is_error: true,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+  });
+});
+
+test("sanitizes surrogates when promoting a user string", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [{ role: "user", content: "lone \uD800 half", timestamp: 0 }],
+    true,
+    activeModel,
+  );
+
+  assert.equal(converted[0].content[0].text, "lone � half");
+});

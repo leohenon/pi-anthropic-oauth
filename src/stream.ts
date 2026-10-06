@@ -36,6 +36,26 @@ const REQUIRED_BETAS = [
   "interleaved-thinking-2025-05-14",
 ] as const;
 
+const LEGACY_THINKING_MODEL =
+  /^claude-(?:opus|sonnet|haiku)-4-[0-5](?:-|$)|^claude-[0-3][-.]/;
+const MIN_THINKING_BUDGET = 1024;
+const EFFORT_BY_REASONING: Record<string, string> = {
+  minimal: "low",
+  low: "low",
+  medium: "medium",
+  high: "high",
+  xhigh: "xhigh",
+  max: "max",
+};
+
+export function usesAdaptiveThinking(model: Model<Api>): boolean {
+  const forced = (
+    model.compat as { forceAdaptiveThinking?: boolean } | undefined
+  )?.forceAdaptiveThinking;
+  if (typeof forced === "boolean") return forced;
+  return !LEGACY_THINKING_MODEL.test(model.id.toLowerCase().replace(/\./g, "-"));
+}
+
 function mapStopReason(reason: string | null | undefined): StopReason {
   switch (reason) {
     case "end_turn":
@@ -49,6 +69,43 @@ function mapStopReason(reason: string | null | undefined): StopReason {
     default:
       return "error";
   }
+}
+
+type MessageDeltaUsage = {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  output_tokens_details?: { thinking_tokens?: number | null };
+};
+
+export function applyMessageDelta(
+  output: AssistantMessage,
+  model: Model<Api>,
+  stopReason: string | null | undefined,
+  usage: MessageDeltaUsage | undefined,
+): void {
+  if (stopReason != null) output.stopReason = mapStopReason(stopReason);
+
+  if (usage) {
+    if (usage.input_tokens != null) output.usage.input = usage.input_tokens;
+    if (usage.output_tokens != null) output.usage.output = usage.output_tokens;
+    if (usage.cache_read_input_tokens != null) {
+      output.usage.cacheRead = usage.cache_read_input_tokens;
+    }
+    if (usage.cache_creation_input_tokens != null) {
+      output.usage.cacheWrite = usage.cache_creation_input_tokens;
+    }
+    const thinkingTokens = usage.output_tokens_details?.thinking_tokens;
+    if (thinkingTokens != null) output.usage.reasoning = thinkingTokens;
+  }
+
+  output.usage.totalTokens =
+    output.usage.input +
+    output.usage.output +
+    output.usage.cacheRead +
+    output.usage.cacheWrite;
+  calculateCost(model, output.usage);
 }
 
 function headersToRecord(headers: Headers): Record<string, string> {
@@ -180,39 +237,22 @@ export function streamAnthropicOAuth(
           ];
         const requestedBudget =
           customBudget ?? defaultBudgets[options.reasoning] ?? 10240;
-        const display = "summarized";
-        const forceAdaptive = (
-          model.compat as { forceAdaptiveThinking?: boolean } | undefined
-        )?.forceAdaptiveThinking;
-        const id = model.id.toLowerCase().replace(/\./g, "-");
-        const adaptive =
-          forceAdaptive === true ||
-          (forceAdaptive !== false &&
-            (/claude-(?:opus|sonnet|haiku|fable|mythos)-5(?:-|$)/.test(id) ||
-              /claude-(?:opus|sonnet|haiku|fable|mythos)-4-(?:[6-9]|\d{2,})(?:-|$)/.test(
-                id,
-              )));
-
-        if (adaptive) {
+        if (usesAdaptiveThinking(model)) {
           const mapped = model.thinkingLevelMap?.[options.reasoning];
           const effort =
             typeof mapped === "string"
               ? mapped
-              : options.reasoning === "minimal" || options.reasoning === "low"
-                ? "low"
-                : options.reasoning === "medium"
-                  ? "medium"
-                  : options.reasoning === "high"
-                    ? "high"
-                    : "high";
-          params.thinking = { type: "adaptive", display } as never;
+              : (EFFORT_BY_REASONING[options.reasoning] ?? "high");
+          params.thinking = {
+            type: "adaptive",
+            display: "summarized",
+          } as never;
           Object.assign(params, { output_config: { effort } });
         } else {
-          params.thinking = {
-            type: "enabled",
-            budget_tokens: Math.min(requestedBudget, maxTokens - 1),
-            display,
-          } as never;
+          const budget = Math.min(requestedBudget, maxTokens - 1);
+          if (budget >= MIN_THINKING_BUDGET) {
+            params.thinking = { type: "enabled", budget_tokens: budget };
+          }
         }
       }
 
@@ -413,42 +453,26 @@ export function streamAnthropicOAuth(
         }
 
         if (event.type === "message_delta") {
-          output.stopReason = mapStopReason(event.delta.stop_reason);
-          output.usage.input =
-            (event.usage as { input_tokens?: number }).input_tokens ||
-            output.usage.input;
-          output.usage.output =
-            (event.usage as { output_tokens?: number }).output_tokens ||
-            output.usage.output;
-          output.usage.cacheRead =
-            (event.usage as { cache_read_input_tokens?: number })
-              .cache_read_input_tokens || 0;
-          output.usage.cacheWrite =
-            (event.usage as { cache_creation_input_tokens?: number })
-              .cache_creation_input_tokens || 0;
-          const thinkingTokens = (
-            event.usage as {
-              output_tokens_details?: { thinking_tokens?: number };
-            }
-          ).output_tokens_details?.thinking_tokens;
-          if (thinkingTokens != null) {
-            output.usage.reasoning = thinkingTokens;
-          }
-          output.usage.totalTokens =
-            output.usage.input +
-            output.usage.output +
-            output.usage.cacheRead +
-            output.usage.cacheWrite;
-          calculateCost(model, output.usage);
+          applyMessageDelta(
+            output,
+            model,
+            event.delta.stop_reason,
+            event.usage as MessageDeltaUsage | undefined,
+          );
         }
       }
 
       if (options?.signal?.aborted) throw new Error("Request aborted");
-      stream.push({
-        type: "done",
-        reason: output.stopReason as "stop" | "length" | "toolUse",
-        message: output,
-      });
+      if (output.stopReason === "error") {
+        output.errorMessage ??= "Unrecognized stop reason from the API.";
+        stream.push({ type: "error", reason: "error", error: output });
+      } else {
+        stream.push({
+          type: "done",
+          reason: output.stopReason as "stop" | "length" | "toolUse",
+          message: output,
+        });
+      }
       stream.end();
     } catch (error) {
       for (const block of output.content as Array<{

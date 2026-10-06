@@ -148,3 +148,19 @@ test("invalid rewrite configuration fails clearly", () => {
     /Invalid PI_ANTHROPIC_OAUTH_REWRITE_PATTERN/,
   );
 });
+
+test("rejects custom patterns that can produce zero-length matches", () => {
+  for (const pattern of ["//", "/(?:)/", "(?:)", "/a*/", "(?=Pi)", "\\b"]) {
+    assert.throws(
+      () => sanitizeSystemText("Pi uses tools", rewriteEnv("custom", pattern)),
+      /match without consuming text/,
+      `expected ${pattern} to be rejected`,
+    );
+  }
+});
+
+test("repairs unpaired surrogates in the emitted system prompt", () => {
+  const blocks = buildAnthropicSystemPrompt("Read \uD800 the docs", false);
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].text, "Read � the docs");
+});
