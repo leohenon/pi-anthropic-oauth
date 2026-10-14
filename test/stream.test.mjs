@@ -124,4 +124,17 @@ test("unknown stop reasons mark the message as an error", () => {
   const output = message();
   applyMessageDelta(output, model, "future_reason", undefined);
   assert.equal(output.stopReason, "error");
+  assert.equal(output.errorMessage, "Provider stop reason: future_reason");
+});
+
+test("refusal stop reasons surface the provider explanation", () => {
+  const output = message();
+  applyMessageDelta(output, model, "refusal", undefined, {
+    explanation: "Blocked for policy reasons.",
+  });
+  assert.equal(output.stopReason, "error");
+  assert.equal(
+    output.errorMessage,
+    "Provider stop reason: refusal — Blocked for policy reasons.",
+  );
 });

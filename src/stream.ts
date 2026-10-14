@@ -84,8 +84,17 @@ export function applyMessageDelta(
   model: Model<Api>,
   stopReason: string | null | undefined,
   usage: MessageDeltaUsage | undefined,
+  stopDetails?: { explanation?: string | null } | null,
 ): void {
-  if (stopReason != null) output.stopReason = mapStopReason(stopReason);
+  if (stopReason != null) {
+    output.stopReason = mapStopReason(stopReason);
+    if (output.stopReason === "error") {
+      // Keep the provider's reason (e.g. "refusal") and explanation instead of a generic message.
+      output.errorMessage = `Provider stop reason: ${stopReason}${
+        stopDetails?.explanation ? ` — ${stopDetails.explanation}` : ""
+      }`;
+    }
+  }
 
   if (usage) {
     if (usage.input_tokens != null) output.usage.input = usage.input_tokens;
@@ -458,6 +467,8 @@ export function streamAnthropicOAuth(
             model,
             event.delta.stop_reason,
             event.usage as MessageDeltaUsage | undefined,
+            (event.delta as { stop_details?: { explanation?: string | null } | null })
+              .stop_details,
           );
         }
       }
