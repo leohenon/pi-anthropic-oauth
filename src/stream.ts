@@ -22,7 +22,7 @@ import {
   fromClaudeCodeToolName,
   type IndexedBlock,
 } from "./convert.js";
-import { buildAnthropicSystemPrompt } from "./prompt.js";
+import { buildAnthropicSystemPrompt, resolveCacheRetention } from "./prompt.js";
 
 const REQUIRED_BETAS = [
   "claude-code-20250219",
@@ -219,15 +219,24 @@ export function streamAnthropicOAuth(
 
       const maxTokens =
         options?.maxTokens || Math.floor(model.maxTokens / 3);
+      const cacheRetention = resolveCacheRetention(
+        options?.cacheRetention,
+        options?.env,
+      );
 
       const params: MessageCreateParamsStreaming = {
         model: model.id,
-        messages: convertPiMessagesToAnthropic(transcript.messages, isOAuth, model),
+        messages: convertPiMessagesToAnthropic(
+          transcript.messages,
+          isOAuth,
+          model,
+          cacheRetention,
+        ),
         max_tokens: maxTokens,
         stream: true,
       };
 
-      const system = buildAnthropicSystemPrompt(systemPrompt, isOAuth);
+      const system = buildAnthropicSystemPrompt(systemPrompt, isOAuth, cacheRetention);
       if (system) params.system = system as never;
       if (tools.length)
         params.tools = convertPiToolsToAnthropic(tools, isOAuth);

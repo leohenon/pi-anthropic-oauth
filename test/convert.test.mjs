@@ -306,3 +306,28 @@ test("sanitizes surrogates when promoting a user string", () => {
 
   assert.equal(converted[0].content[0].text, "lone � half");
 });
+
+test("long cache retention sets a 1h TTL on the history tail", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [{ role: "user", content: "Explain this repo", timestamp: 0 }],
+    true,
+    activeModel,
+    "long",
+  );
+
+  assert.deepEqual(converted[0].content[0].cache_control, {
+    type: "ephemeral",
+    ttl: "1h",
+  });
+});
+
+test("disabled cache retention leaves the history tail unmarked", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [{ role: "user", content: "Explain this repo", timestamp: 0 }],
+    true,
+    activeModel,
+    "none",
+  );
+
+  assert.deepEqual(converted, [{ role: "user", content: "Explain this repo" }]);
+});
