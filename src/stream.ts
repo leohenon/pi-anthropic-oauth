@@ -304,182 +304,190 @@ export function streamAnthropicOAuth(
 
       const blocks = output.content as IndexedBlock[];
 
-      for await (const event of anthropicStream) {
-        if (event.type === "message_start") {
-          output.usage.input = event.message.usage.input_tokens || 0;
-          output.usage.output = event.message.usage.output_tokens || 0;
-          output.usage.cacheRead =
-            (event.message.usage as { cache_read_input_tokens?: number })
-              .cache_read_input_tokens || 0;
-          output.usage.cacheWrite =
-            (event.message.usage as { cache_creation_input_tokens?: number })
-              .cache_creation_input_tokens || 0;
-          output.usage.totalTokens =
-            output.usage.input +
-            output.usage.output +
-            output.usage.cacheRead +
-            output.usage.cacheWrite;
-          calculateCost(model, output.usage);
-          continue;
-        }
+      let lastEvent = "";
+      try {
+        for await (const event of anthropicStream) {
+          lastEvent = event.type;
 
-        if (event.type === "content_block_start") {
-          if (event.content_block.type === "text") {
-            output.content.push({
-              type: "text",
-              text: "",
-              index: event.index,
-            } as IndexedBlock);
-            stream.push({
-              type: "text_start",
-              contentIndex: output.content.length - 1,
-              partial: output,
-            });
-          } else if (event.content_block.type === "thinking") {
-            output.content.push({
-              type: "thinking",
-              thinking: "",
-              thinkingSignature: "",
-              index: event.index,
-            } as IndexedBlock);
-            stream.push({
-              type: "thinking_start",
-              contentIndex: output.content.length - 1,
-              partial: output,
-            });
-          } else if (event.content_block.type === "redacted_thinking") {
-            output.content.push({
-              type: "thinking",
-              thinking: "[Reasoning redacted]",
-              thinkingSignature: event.content_block.data,
-              redacted: true,
-              index: event.index,
-            } as IndexedBlock);
-            stream.push({
-              type: "thinking_start",
-              contentIndex: output.content.length - 1,
-              partial: output,
-            });
-          } else if (event.content_block.type === "tool_use") {
-            output.content.push({
-              type: "toolCall",
-              id: event.content_block.id,
-              name: isOAuth
-                ? fromClaudeCodeToolName(
-                    event.content_block.name,
-                    tools,
-                  )
-                : event.content_block.name,
-              arguments: {},
-              partialJson: "",
-              index: event.index,
-            } as IndexedBlock);
-            stream.push({
-              type: "toolcall_start",
-              contentIndex: output.content.length - 1,
-              partial: output,
-            });
+          if (event.type === "message_start") {
+            output.usage.input = event.message.usage.input_tokens || 0;
+            output.usage.output = event.message.usage.output_tokens || 0;
+            output.usage.cacheRead =
+              (event.message.usage as { cache_read_input_tokens?: number })
+                .cache_read_input_tokens || 0;
+            output.usage.cacheWrite =
+              (event.message.usage as { cache_creation_input_tokens?: number })
+                .cache_creation_input_tokens || 0;
+            output.usage.totalTokens =
+              output.usage.input +
+              output.usage.output +
+              output.usage.cacheRead +
+              output.usage.cacheWrite;
+            calculateCost(model, output.usage);
+            continue;
           }
-          continue;
-        }
 
-        if (event.type === "content_block_delta") {
-          const contentIndex = blocks.findIndex(
-            (block) => block.index === event.index,
-          );
-          const block = blocks[contentIndex];
-          if (!block) continue;
-
-          if (event.delta.type === "text_delta" && block.type === "text") {
-            block.text += event.delta.text;
-            stream.push({
-              type: "text_delta",
-              contentIndex,
-              delta: event.delta.text,
-              partial: output,
-            });
-          } else if (
-            event.delta.type === "thinking_delta" &&
-            block.type === "thinking"
-          ) {
-            block.thinking += event.delta.thinking;
-            stream.push({
-              type: "thinking_delta",
-              contentIndex,
-              delta: event.delta.thinking,
-              partial: output,
-            });
-          } else if (
-            event.delta.type === "signature_delta" &&
-            block.type === "thinking"
-          ) {
-            block.thinkingSignature =
-              (block.thinkingSignature || "") + event.delta.signature;
-          } else if (
-            event.delta.type === "input_json_delta" &&
-            block.type === "toolCall"
-          ) {
-            block.partialJson += event.delta.partial_json;
-            try {
-              block.arguments = JSON.parse(block.partialJson) as JsonObject;
-            } catch {}
-            stream.push({
-              type: "toolcall_delta",
-              contentIndex,
-              delta: event.delta.partial_json,
-              partial: output,
-            });
+          if (event.type === "content_block_start") {
+            if (event.content_block.type === "text") {
+              output.content.push({
+                type: "text",
+                text: "",
+                index: event.index,
+              } as IndexedBlock);
+              stream.push({
+                type: "text_start",
+                contentIndex: output.content.length - 1,
+                partial: output,
+              });
+            } else if (event.content_block.type === "thinking") {
+              output.content.push({
+                type: "thinking",
+                thinking: "",
+                thinkingSignature: "",
+                index: event.index,
+              } as IndexedBlock);
+              stream.push({
+                type: "thinking_start",
+                contentIndex: output.content.length - 1,
+                partial: output,
+              });
+            } else if (event.content_block.type === "redacted_thinking") {
+              output.content.push({
+                type: "thinking",
+                thinking: "[Reasoning redacted]",
+                thinkingSignature: event.content_block.data,
+                redacted: true,
+                index: event.index,
+              } as IndexedBlock);
+              stream.push({
+                type: "thinking_start",
+                contentIndex: output.content.length - 1,
+                partial: output,
+              });
+            } else if (event.content_block.type === "tool_use") {
+              output.content.push({
+                type: "toolCall",
+                id: event.content_block.id,
+                name: isOAuth
+                  ? fromClaudeCodeToolName(
+                      event.content_block.name,
+                      tools,
+                    )
+                  : event.content_block.name,
+                arguments: {},
+                partialJson: "",
+                index: event.index,
+              } as IndexedBlock);
+              stream.push({
+                type: "toolcall_start",
+                contentIndex: output.content.length - 1,
+                partial: output,
+              });
+            }
+            continue;
           }
-          continue;
-        }
 
-        if (event.type === "content_block_stop") {
-          const contentIndex = blocks.findIndex(
-            (block) => block.index === event.index,
-          );
-          const block = blocks[contentIndex];
-          if (!block) continue;
+          if (event.type === "content_block_delta") {
+            const contentIndex = blocks.findIndex(
+              (block) => block.index === event.index,
+            );
+            const block = blocks[contentIndex];
+            if (!block) continue;
 
-          delete (block as { index?: number }).index;
-          if (block.type === "text") {
-            stream.push({
-              type: "text_end",
-              contentIndex,
-              content: block.text,
-              partial: output,
-            });
-          } else if (block.type === "thinking") {
-            stream.push({
-              type: "thinking_end",
-              contentIndex,
-              content: block.thinking,
-              partial: output,
-            });
-          } else if (block.type === "toolCall") {
-            try {
-              block.arguments = JSON.parse(block.partialJson) as JsonObject;
-            } catch {}
-            delete (block as { partialJson?: string }).partialJson;
-            stream.push({
-              type: "toolcall_end",
-              contentIndex,
-              toolCall: block,
-              partial: output,
-            });
+            if (event.delta.type === "text_delta" && block.type === "text") {
+              block.text += event.delta.text;
+              stream.push({
+                type: "text_delta",
+                contentIndex,
+                delta: event.delta.text,
+                partial: output,
+              });
+            } else if (
+              event.delta.type === "thinking_delta" &&
+              block.type === "thinking"
+            ) {
+              block.thinking += event.delta.thinking;
+              stream.push({
+                type: "thinking_delta",
+                contentIndex,
+                delta: event.delta.thinking,
+                partial: output,
+              });
+            } else if (
+              event.delta.type === "signature_delta" &&
+              block.type === "thinking"
+            ) {
+              block.thinkingSignature =
+                (block.thinkingSignature || "") + event.delta.signature;
+            } else if (
+              event.delta.type === "input_json_delta" &&
+              block.type === "toolCall"
+            ) {
+              block.partialJson += event.delta.partial_json;
+              try {
+                block.arguments = JSON.parse(block.partialJson) as JsonObject;
+              } catch {}
+              stream.push({
+                type: "toolcall_delta",
+                contentIndex,
+                delta: event.delta.partial_json,
+                partial: output,
+              });
+            }
+            continue;
           }
-          continue;
-        }
 
-        if (event.type === "message_delta") {
-          applyMessageDelta(
-            output,
-            model,
-            event.delta.stop_reason,
-            event.usage as MessageDeltaUsage | undefined,
-            (event.delta as { stop_details?: { explanation?: string | null } | null })
-              .stop_details,
-          );
+          if (event.type === "content_block_stop") {
+            const contentIndex = blocks.findIndex(
+              (block) => block.index === event.index,
+            );
+            const block = blocks[contentIndex];
+            if (!block) continue;
+
+            delete (block as { index?: number }).index;
+            if (block.type === "text") {
+              stream.push({
+                type: "text_end",
+                contentIndex,
+                content: block.text,
+                partial: output,
+              });
+            } else if (block.type === "thinking") {
+              stream.push({
+                type: "thinking_end",
+                contentIndex,
+                content: block.thinking,
+                partial: output,
+              });
+            } else if (block.type === "toolCall") {
+              try {
+                block.arguments = JSON.parse(block.partialJson) as JsonObject;
+              } catch {}
+              delete (block as { partialJson?: string }).partialJson;
+              stream.push({
+                type: "toolcall_end",
+                contentIndex,
+                toolCall: block,
+                partial: output,
+              });
+            }
+            continue;
+          }
+
+          if (event.type === "message_delta") {
+            applyMessageDelta(
+              output,
+              model,
+              event.delta.stop_reason,
+              event.usage as MessageDeltaUsage | undefined,
+              (event.delta as { stop_details?: { explanation?: string | null } | null })
+                .stop_details,
+            );
+          }
         }
+      } catch (error) {
+        // Bun can throw while closing the body after message_stop (#37).
+        if (lastEvent !== "message_stop") throw error;
       }
 
       if (options?.signal?.aborted) throw new Error("Request aborted");
