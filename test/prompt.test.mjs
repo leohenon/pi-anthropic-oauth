@@ -4,6 +4,7 @@ import {
   buildAnthropicSystemPrompt,
   PI_REWRITE_MODE_ENV,
   PI_REWRITE_PATTERN_ENV,
+  resolveCacheRetention,
   sanitizeSurrogates,
   sanitizeSystemText,
 } from "../.test-dist/prompt.js";
@@ -163,4 +164,20 @@ test("repairs unpaired surrogates in the emitted system prompt", () => {
   const blocks = buildAnthropicSystemPrompt("Read \uD800 the docs", false);
   assert.equal(blocks.length, 1);
   assert.equal(blocks[0].text, "Read � the docs");
+});
+
+test("long cache retention sets a 1h TTL on the system prompt", () => {
+  const blocks = buildAnthropicSystemPrompt("You are a coding agent.", false, "long");
+  assert.deepEqual(blocks[0].cache_control, { type: "ephemeral", ttl: "1h" });
+});
+
+test("disabled cache retention leaves the system prompt unmarked", () => {
+  const blocks = buildAnthropicSystemPrompt("You are a coding agent.", false, "none");
+  assert.deepEqual(blocks, [{ type: "text", text: "You are a coding agent." }]);
+});
+
+test("cache retention prefers the explicit option over PI_CACHE_RETENTION", () => {
+  assert.equal(resolveCacheRetention("short", { PI_CACHE_RETENTION: "long" }), "short");
+  assert.equal(resolveCacheRetention(undefined, { PI_CACHE_RETENTION: "long" }), "long");
+  assert.equal(resolveCacheRetention(undefined, { PI_CACHE_RETENTION: "bogus" }), "short");
 });

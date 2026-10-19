@@ -1,4 +1,9 @@
-import type { ContentBlockParam, MessageParam, ToolUnion } from "@anthropic-ai/sdk/resources/messages.js";
+import type {
+  CacheControlEphemeral,
+  ContentBlockParam,
+  MessageParam,
+  ToolUnion,
+} from "@anthropic-ai/sdk/resources/messages.js";
 
 type ToolResultContentBlock =
   | { type: "text"; text: string }
@@ -12,6 +17,7 @@ type ToolResultContentBlock =
     };
 import type {
   Api,
+  CacheRetention,
   ImageContent,
   Message,
   Model,
@@ -21,7 +27,7 @@ import type {
   ToolCall,
   ToolResultMessage,
 } from "@earendil-works/pi-ai";
-import { sanitizeSurrogates } from "./prompt.js";
+import { cacheControlFor, sanitizeSurrogates } from "./prompt.js";
 
 export type IndexedBlock =
   | (TextContent & { index: number })
@@ -72,6 +78,7 @@ export function convertPiMessagesToAnthropic(
   messages: Message[],
   isOAuth: boolean,
   model: Pick<Model<Api>, "provider" | "api" | "id">,
+  cacheRetention: CacheRetention = "short",
 ): MessageParam[] {
   const params: MessageParam[] = [];
   const toolIdMap = new Map<string, string>();
@@ -251,23 +258,24 @@ export function convertPiMessagesToAnthropic(
 
   // Anthropic prompt caching requires an explicit breakpoint. Plain-text user
   // turns must be promoted to a block so there is somewhere to attach it.
+  const cacheControl = cacheControlFor(cacheRetention);
   const last = params.at(-1);
-  if (last?.role === "user") {
+  if (cacheControl && last?.role === "user") {
     if (typeof last.content === "string") {
       if (last.content) {
         last.content = [
           {
             type: "text",
             text: last.content,
-            cache_control: { type: "ephemeral" },
+            cache_control: cacheControl,
           },
         ];
       }
     } else if (last.content.length > 0) {
       const lastBlock = last.content[last.content.length - 1] as {
-        cache_control?: { type: string };
+        cache_control?: CacheControlEphemeral;
       };
-      lastBlock.cache_control = { type: "ephemeral" };
+      lastBlock.cache_control = cacheControl;
     }
   }
 

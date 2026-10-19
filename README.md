@@ -55,6 +55,14 @@ Anthropic gates new models on the Claude Code client version (error `claude_code
 PI_ANTHROPIC_OAUTH_CLAUDE_CODE_VERSION=2.1.280
 ```
 
+## Prompt cache retention
+
+Cache breakpoints follow pi's `cacheRetention` setting: `short` (default) uses the 5-minute cache, `long` uses the 1-hour cache, and `none` disables caching. Without an explicit setting, `PI_CACHE_RETENTION` is honored, same as pi's built-in Anthropic provider:
+
+```bash
+PI_CACHE_RETENTION=long
+```
+
 ## System prompt rewriting
 
 When using Claude Pro/Max OAuth, the extension prepends the Claude Code billing-header and identity system blocks and rewrites standalone `Pi` / `pi` references in Pi's system prompt to `Claude Code`. The rewrite mode defaults to `aggressive`:

@@ -1,3 +1,5 @@
+import type { CacheControlEphemeral } from "@anthropic-ai/sdk/resources/messages.js";
+import type { CacheRetention, ProviderEnv } from "@earendil-works/pi-ai";
 import { randomUUID } from "node:crypto";
 import { getClaudeCodeVersion } from "./version.js";
 
@@ -59,9 +61,27 @@ export function sanitizeSurrogates(text: string): string {
   );
 }
 
+export function resolveCacheRetention(
+  cacheRetention: CacheRetention | undefined,
+  env?: ProviderEnv,
+): CacheRetention {
+  if (cacheRetention) return cacheRetention;
+  const envValue = env?.PI_CACHE_RETENTION ?? process.env.PI_CACHE_RETENTION;
+  return envValue === "long" ? "long" : "short";
+}
+
+export function cacheControlFor(
+  cacheRetention: CacheRetention,
+): CacheControlEphemeral | undefined {
+  if (cacheRetention === "none") return undefined;
+  if (cacheRetention === "long") return { type: "ephemeral", ttl: "1h" };
+  return { type: "ephemeral" };
+}
+
 export function buildAnthropicSystemPrompt(
   systemPrompt: string | undefined,
   isOAuth: boolean,
+  cacheRetention: CacheRetention = "short",
 ): MessageContentBlock[] | undefined {
   const blocks: MessageContentBlock[] = [];
 
@@ -74,10 +94,11 @@ export function buildAnthropicSystemPrompt(
     ? sanitizeSystemText(sanitizeSurrogates(systemPrompt))
     : "";
   if (sanitized) {
+    const cacheControl = cacheControlFor(cacheRetention);
     blocks.push({
       type: "text",
       text: sanitized,
-      cache_control: { type: "ephemeral" },
+      ...(cacheControl && { cache_control: cacheControl }),
     });
   }
 
