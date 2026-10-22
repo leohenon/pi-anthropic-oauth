@@ -130,14 +130,20 @@ export function convertPiMessagesToAnthropic(
       if (typeof message.content === "string") {
         if (message.content.trim()) params.push({ role: "user", content: sanitizeSurrogates(message.content) });
       } else {
-        const blocks: ContentBlockParam[] = message.content.map((item) =>
-          item.type === "text"
-            ? { type: "text", text: sanitizeSurrogates(item.text) }
-            : {
-                type: "image",
-                source: { type: "base64", media_type: item.mimeType as never, data: item.data },
-              },
-        );
+        // Extensions may emit custom messages with empty text (e.g. a
+        // display-only message whose data lives in `details`). Anthropic
+        // rejects empty text blocks, and a cache breakpoint on one fails with
+        // "cache_control cannot be set for empty text blocks".
+        const blocks: ContentBlockParam[] = message.content
+          .filter((item) => item.type !== "text" || item.text.trim())
+          .map((item) =>
+            item.type === "text"
+              ? { type: "text", text: sanitizeSurrogates(item.text) }
+              : {
+                  type: "image",
+                  source: { type: "base64", media_type: item.mimeType as never, data: item.data },
+                },
+          );
         if (blocks.length > 0) params.push({ role: "user", content: blocks });
       }
       continue;
