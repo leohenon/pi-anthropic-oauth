@@ -331,3 +331,41 @@ test("disabled cache retention leaves the history tail unmarked", () => {
 
   assert.deepEqual(converted, [{ role: "user", content: "Explain this repo" }]);
 });
+
+test("drops empty text blocks from user turns before placing the cache breakpoint", () => {
+  // Extensions can emit display-only custom messages with `content: ""`; pi
+  // forwards them as a user turn holding one empty text block.
+  const converted = convertPiMessagesToAnthropic(
+    [
+      { role: "user", content: "fix the bug", timestamp: 0 },
+      assistant([{ type: "text", text: "done" }]),
+      { role: "user", content: [{ type: "text", text: "" }], timestamp: 0 },
+    ],
+    true,
+    activeModel,
+  );
+
+  assert.equal(converted.length, 2);
+  assert.equal(converted.at(-1).role, "assistant");
+});
+
+test("keeps non-empty blocks when a user turn mixes empty and non-empty text", () => {
+  const converted = convertPiMessagesToAnthropic(
+    [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "question" },
+          { type: "text", text: "  " },
+        ],
+        timestamp: 0,
+      },
+    ],
+    true,
+    activeModel,
+  );
+
+  assert.deepEqual(converted[0].content, [
+    { type: "text", text: "question", cache_control: { type: "ephemeral" } },
+  ]);
+});
