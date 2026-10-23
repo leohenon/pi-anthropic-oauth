@@ -5,7 +5,7 @@
 Use Claude Pro/Max in Pi with browser OAuth.
 
 > [!IMPORTANT]
-> This extension supports Pi 0.80.8 or later.
+> This extension supports Pi 0.86.0 or later.
 
 ## Features
 
