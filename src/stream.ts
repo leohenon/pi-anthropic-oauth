@@ -283,6 +283,8 @@ export function streamAnthropicOAuth(
         await client.messages
           .create(params, {
             signal: options?.signal,
+            // Let Pi handle retries; SDK quota waits are silent and unabortable.
+            maxRetries: 0,
           })
           .withResponse();
 

@@ -141,6 +141,63 @@ test("refusal stop reasons surface the provider explanation", () => {
   );
 });
 
+for (const retryHeaders of [
+  { "retry-after": "18000" },
+  { "retry-after-ms": "18000000" },
+]) {
+  test(`quota errors surface without hidden SDK waits (${Object.keys(retryHeaders)[0]})`, async (t) => {
+    let requests = 0;
+    const hiddenDelays = [];
+    const setTimeout = globalThis.setTimeout;
+    // Skip quota waits so regressions fail without hanging.
+    t.mock.method(globalThis, "setTimeout", (callback, delay, ...args) => {
+      if (requests > 0 && delay > 60_000) {
+        hiddenDelays.push(delay);
+        return setTimeout(callback, 0, ...args);
+      }
+      return setTimeout(callback, delay, ...args);
+    });
+    t.mock.method(globalThis, "fetch", async () => {
+      requests++;
+      return new Response(
+        JSON.stringify({
+          type: "error",
+          error: {
+            type: "rate_limit_error",
+            message: "Your five-hour usage limit has been reached.",
+          },
+        }),
+        {
+          status: 429,
+          headers: { "content-type": "application/json", ...retryHeaders },
+        },
+      );
+    });
+
+    const events = [];
+    const stream = streamAnthropicOAuth(
+      model,
+      normalizeContext({
+        messages: [{ role: "user", content: "hello", timestamp: 0 }],
+      }),
+      { apiKey: "sk-ant-oat01-test" },
+    );
+    for await (const event of stream) events.push(event);
+
+    assert.deepEqual(
+      hiddenDelays,
+      [],
+      "quota resets must not trigger silent SDK sleeps",
+    );
+    assert.equal(requests, 1);
+    assert.equal(events.length, 1);
+    assert.equal(events[0].type, "error");
+    assert.equal(events[0].reason, "error");
+    assert.match(events[0].error.errorMessage, /429/);
+    assert.match(events[0].error.errorMessage, /five-hour usage limit/);
+  });
+}
+
 // Simulate a body iterator throwing after its last chunk (#37).
 async function streamWithBodyFailure({
   complete = true,
@@ -154,8 +211,16 @@ async function streamWithBodyFailure({
       type: "message_start",
       message: { usage: { input_tokens: 100, output_tokens: 0 } },
     },
-    { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
-    { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } },
+    {
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "text", text: "" },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: "ok" },
+    },
     { type: "content_block_stop", index: 0 },
     {
       type: "message_delta",
@@ -171,9 +236,14 @@ async function streamWithBodyFailure({
   Object.defineProperty(response, "body", {
     value: {
       async *[Symbol.asyncIterator]() {
-        yield new TextEncoder().encode(events.map((event) =>
-          `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
-        ).join(""));
+        yield new TextEncoder().encode(
+          events
+            .map(
+              (event) =>
+                `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
+            )
+            .join(""),
+        );
         if (abort) controller.abort();
         if (fail) throw new TypeError("undefined is not a function");
       },
@@ -182,9 +252,13 @@ async function streamWithBodyFailure({
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => response;
   try {
-    const stream = streamAnthropicOAuth(model, normalizeContext({
-      messages: [{ role: "user", content: "say ok", timestamp: 0 }],
-    }), { apiKey: "test-key", signal: controller.signal });
+    const stream = streamAnthropicOAuth(
+      model,
+      normalizeContext({
+        messages: [{ role: "user", content: "say ok", timestamp: 0 }],
+      }),
+      { apiKey: "test-key", signal: controller.signal },
+    );
     const received = [];
     for await (const event of stream) received.push(event);
     return received;
@@ -214,7 +288,10 @@ for (const [stopReason, reason] of [
     assert.equal(last.message.usage.output, 4);
     assert.equal(last.message.usage.totalTokens, 104);
     assert.equal(events.filter((event) => event.type === "done").length, 1);
-    assert.equal(events.some((event) => event.type === "error"), false);
+    assert.equal(
+      events.some((event) => event.type === "error"),
+      false,
+    );
   });
 }
 
@@ -224,7 +301,10 @@ test("body errors before message_stop still fail even after message_delta", asyn
   assert.equal(last.type, "error");
   assert.equal(last.reason, "error");
   assert.equal(last.error.errorMessage, "undefined is not a function");
-  assert.equal(events.some((event) => event.type === "done"), false);
+  assert.equal(
+    events.some((event) => event.type === "done"),
+    false,
+  );
 });
 
 test("abort after message_stop is not swallowed with the body error", async () => {
@@ -237,5 +317,8 @@ test("unknown stop reasons still fail after message_stop and a body error", asyn
   const events = await streamWithBodyFailure({ stopReason: "future_reason" });
   assert.equal(events.at(-1).type, "error");
   assert.equal(events.at(-1).reason, "error");
-  assert.equal(events.at(-1).error.errorMessage, "Provider stop reason: future_reason");
+  assert.equal(
+    events.at(-1).error.errorMessage,
+    "Provider stop reason: future_reason",
+  );
 });

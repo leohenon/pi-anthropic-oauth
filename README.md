@@ -4,6 +4,8 @@
 
 Use Claude Pro/Max in Pi with browser OAuth.
 
+Resolves the Anthropic `400 invalid_request_error`: “Third-party apps now draw from your extra usage, not your plan limits.”
+
 > [!IMPORTANT]
 > This extension supports Pi 0.86.0 or later.
 
