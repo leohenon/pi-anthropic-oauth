@@ -8,6 +8,7 @@ import {
 import type { OAuthCredentials } from "@earendil-works/pi-ai";
 import { loginAnthropic, refreshAnthropicToken } from "./auth.js";
 import { streamAnthropicOAuth } from "./stream.js";
+import { registerUsageCommand } from "./usage.js";
 
 function ensureClaudeCodeSymlink() {
   const target = join(homedir(), ".pi");
@@ -15,12 +16,15 @@ function ensureClaudeCodeSymlink() {
   if (existsSync(target) && !existsSync(link)) {
     try {
       symlinkSync(target, link);
-    } catch { }
+    } catch {
+      // Best effort: a failed compatibility symlink must not prevent loading.
+    }
   }
 }
 
 export default function (pi: ExtensionAPI) {
   ensureClaudeCodeSymlink();
+  registerUsageCommand(pi);
 
   pi.registerProvider("anthropic", {
     baseUrl: "https://api.anthropic.com",

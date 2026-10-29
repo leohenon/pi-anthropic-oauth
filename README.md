@@ -2,21 +2,21 @@
 
 [![npm](https://img.shields.io/npm/v/pi-anthropic-oauth?style=flat-square&logo=npm&logoColor=white&label=npm&color=7c3aed)](https://www.npmjs.com/package/pi-anthropic-oauth)
 
-Use Claude Pro/Max in Pi with browser OAuth.
+**Use your Claude Pro/Max subscription in Pi, no API key or Claude Code installation required.**
 
-Resolves the Anthropic `400 invalid_request_error`: “Third-party apps now draw from your extra usage, not your plan limits.”
+Keeps Pi's built-in models and tools.
 
 > [!IMPORTANT]
-> This extension supports Pi 0.86.0 or later.
+> Requires Pi 0.86.0+
 
 ## Features
 
 - Claude Pro/Max login from `/login`
 - Automatic token refresh
-- Claude Code-compatible OAuth headers and prompt shaping
+- Uses your plan's included usage
 - No Anthropic API key needed
+- No Claude Code installation required
 - Uses the Anthropic models available in Pi's built-in model registry
-- Auto-creates `~/.Claude Code` → `~/.pi` symlink when missing
 
 ## Quick start
 
@@ -40,14 +40,26 @@ Complete the browser login. After login, select an Anthropic model in Pi.
 
 When the extension is active, `/login` includes `Claude Pro/Max` and Anthropic models show `(sub)` after OAuth login.
 
+View plan usage and limits:
+
+```text
+/usage
+```
+
 Update with:
 
 ```bash
 pi update npm:pi-anthropic-oauth
 ```
 
-> [!NOTE]
-> Anthropic auth changes are closely monitored for quick compatibility updates.
+## How it works
+
+- **Login:** `/login` → `Claude Pro/Max`; tokens refresh automatically.
+- **Requests:** Direct to Anthropic—no proxy or API key.
+- **Compatibility:** Adapts headers, system prompts, and tool names for Claude Code.
+- **Integration:** Streams native Pi events; tools run in Pi.
+
+Creates `~/.Claude Code` → `~/.pi` if missing.
 
 ## Claude Code version override
 
@@ -118,7 +130,7 @@ To add another Anthropic model, create `~/.pi/agent/models.json`:
 ```
 
 > [!NOTE]
-> Opus 5 and Fable 5 are included in Pi's built-in Anthropic model catalog as `claude-opus-5` and `claude-fable-5`.
+> Available models follow Pi's built-in Anthropic catalog. Update Pi to get the latest models.
 >
 > Pi requires `baseUrl`, `apiKey`, and `api` when defining custom models in `models.json`. With this extension, requests normally authenticate through Claude Pro/Max OAuth after `/login`, so `apiKey` is only a placeholder to satisfy Pi's config requirements and does not need to be a valid Anthropic API key.
 >
@@ -126,7 +138,8 @@ To add another Anthropic model, create `~/.pi/agent/models.json`:
 
 ## Troubleshooting
 
-- Run `/login` with no arguments, then choose `Claude Pro/Max`.
+- If you see `400 invalid_request_error` with "Third-party apps now draw from your extra usage, not your plan limits.", update this extension (`pi update npm:pi-anthropic-oauth`), then run `/login` with no arguments and choose `Claude Pro/Max`.
+- Pi's built-in extra-usage warning may still appear. Check `/usage` to confirm billing; disable the warning in `/settings` if desired.
 - If local callback login does not complete, paste the final callback URL or `code#state` when prompted
 - If you see `401 Invalid bearer token`, remove any fake `sk-ant-oat...` placeholder from `~/.pi/agent/models.json` and log in again
 - If something breaks, please open an issue with your Pi version, extension version, and error output
