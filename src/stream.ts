@@ -241,7 +241,14 @@ export function streamAnthropicOAuth(
       if (tools.length)
         params.tools = convertPiToolsToAnthropic(tools, isOAuth);
 
-      if (options?.reasoning && model.reasoning && maxTokens > 1) {
+      // Cache warming replays the request with maxTokens: 1. Adaptive thinking has
+      // no budget to fit under it, so keep it on: dropping it changes the request
+      // and the replay misses the cached messages it is meant to keep warm.
+      if (
+        options?.reasoning &&
+        model.reasoning &&
+        (maxTokens > 1 || usesAdaptiveThinking(model))
+      ) {
         const defaultBudgets: Record<string, number> = {
           minimal: 1024,
           low: 4096,
