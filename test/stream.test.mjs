@@ -102,6 +102,52 @@ test("routes only known legacy models to budget-based thinking", () => {
   );
 });
 
+async function requestBody(t, requestModel, options) {
+  let body;
+  t.mock.method(globalThis, "fetch", async (_url, init) => {
+    body = JSON.parse(init.body);
+    return new Response(
+      JSON.stringify({
+        type: "error",
+        error: { type: "invalid_request_error", message: "stop" },
+      }),
+      { status: 400, headers: { "content-type": "application/json" } },
+    );
+  });
+  const stream = streamAnthropicOAuth(
+    requestModel,
+    normalizeContext({
+      messages: [{ role: "user", content: "hello", timestamp: 0 }],
+    }),
+    { apiKey: "sk-ant-oat01-test", ...options },
+  );
+  for await (const _event of stream);
+  return body;
+}
+
+test("one-token replays keep adaptive thinking so they match the cached request", async (t) => {
+  const adaptive = { ...model, id: "claude-opus-5" };
+  const full = await requestBody(t, adaptive, { reasoning: "high" });
+  const replay = await requestBody(t, adaptive, {
+    reasoning: "high",
+    maxTokens: 1,
+  });
+
+  assert.equal(replay.max_tokens, 1);
+  assert.deepEqual(replay.thinking, full.thinking);
+  assert.deepEqual(replay.output_config, full.output_config);
+});
+
+test("one-token replays still skip budget thinking on legacy models", async (t) => {
+  const legacy = { ...model, id: "claude-opus-4-5" };
+  const replay = await requestBody(t, legacy, {
+    reasoning: "high",
+    maxTokens: 1,
+  });
+
+  assert.equal(replay.thinking, undefined);
+});
+
 test("message deltas accept explicit zeroes and terminal stop reasons", () => {
   const output = message();
 
