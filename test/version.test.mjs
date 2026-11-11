@@ -8,7 +8,7 @@ import {
 
 test("user agent uses the claude-cli form with the default version", () => {
   const version = getClaudeCodeVersion({});
-  assert.equal(version, "2.1.280");
+  assert.equal(version, "2.1.322");
   assert.equal(makeClaudeCodeUserAgent({}), `claude-cli/${version} (external, cli)`);
 });
 

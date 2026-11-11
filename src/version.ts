@@ -1,5 +1,5 @@
 export const CLAUDE_CODE_VERSION_ENV = "PI_ANTHROPIC_OAUTH_CLAUDE_CODE_VERSION";
-const DEFAULT_CLAUDE_CODE_VERSION = "2.1.280";
+const DEFAULT_CLAUDE_CODE_VERSION = "2.1.322";
 
 /**
  * Claude Code version advertised to the API (user agent and billing header).
