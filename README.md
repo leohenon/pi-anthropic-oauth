@@ -138,8 +138,22 @@ To add another Anthropic model, create `~/.pi/agent/models.json`:
 
 ## Troubleshooting
 
-- If you see `400 invalid_request_error` with "Third-party apps now draw from your extra usage, not your plan limits.", update this extension (`pi update npm:pi-anthropic-oauth`), then run `/login` with no arguments and choose `Claude Pro/Max`.
-- Pi's built-in extra-usage warning may still appear. Check `/usage` to confirm billing; disable the warning in `/settings` if desired.
+- Built-in extra-usage warning will still appear:
+
+  > "_Anthropic subscription auth is active. Third-party harness usage draws from extra usage and is billed per token, not your Claude plan limits..._"
+
+  This warning does not necessarily mean you’re drawing from extra usage. Check `/usage` to verify. To hide the warning, add this to `~/.pi/agent/settings.json`:
+
+  ```json
+  {
+    "warnings": {
+      "anthropicExtraUsage": false
+    }
+  }
+  ```
+
+- If you see `400 invalid_request_error` with "Third-party apps now draw from your extra usage, not your plan limits.", update this extension (`pi update npm:pi-anthropic-oauth`), then run `/login` with and choose `Claude Pro/Max`.
+
 - If local callback login does not complete, paste the final callback URL or `code#state` when prompted
 - If you see `401 Invalid bearer token`, remove any fake `sk-ant-oat...` placeholder from `~/.pi/agent/models.json` and log in again
 - If something breaks, please open an issue with your Pi version, extension version, and error output
