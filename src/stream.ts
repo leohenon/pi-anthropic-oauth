@@ -195,6 +195,7 @@ export function streamAnthropicOAuth(
       stopReason: "stop",
       timestamp: Date.now(),
     };
+    let responseReported = false;
 
     try {
       const apiKey = options?.apiKey;
@@ -295,6 +296,7 @@ export function streamAnthropicOAuth(
           })
           .withResponse();
 
+      responseReported = true;
       if (options?.onResponse) {
         try {
           await options.onResponse(
@@ -518,6 +520,27 @@ export function streamAnthropicOAuth(
       }>) {
         delete block.index;
         delete block.partialJson;
+      }
+      // The SDK throws HTTP failures before withResponse() resolves, so the
+      // hook above never ran; report the status and headers (e.g. 429 limits).
+      const failure = error as { status?: unknown; headers?: unknown };
+      if (
+        !responseReported &&
+        options?.onResponse &&
+        typeof failure?.status === "number" &&
+        failure.headers instanceof Headers
+      ) {
+        try {
+          await options.onResponse(
+            {
+              status: failure.status,
+              headers: headersToRecord(failure.headers),
+            },
+            model,
+          );
+        } catch {
+          // Best-effort, as above.
+        }
       }
       output.stopReason = options?.signal?.aborted ? "aborted" : "error";
       output.errorMessage =
