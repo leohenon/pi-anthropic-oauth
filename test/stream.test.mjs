@@ -244,6 +244,41 @@ for (const retryHeaders of [
   });
 }
 
+test("HTTP failures still reach onResponse with status and headers", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    new Response(
+      JSON.stringify({ type: "error", error: { type: "rate_limit_error", message: "limit" } }),
+      {
+        status: 429,
+        headers: {
+          "content-type": "application/json",
+          "anthropic-ratelimit-unified-status": "rejected",
+        },
+      },
+    ),
+  );
+
+  const responses = [];
+  const events = [];
+  const stream = streamAnthropicOAuth(
+    model,
+    normalizeContext({
+      messages: [{ role: "user", content: "hello", timestamp: 0 }],
+    }),
+    {
+      apiKey: "sk-ant-oat01-test",
+      onResponse: (response) => void responses.push(response),
+    },
+  );
+  for await (const event of stream) events.push(event);
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0].type, "error");
+  assert.equal(responses.length, 1);
+  assert.equal(responses[0].status, 429);
+  assert.equal(responses[0].headers["anthropic-ratelimit-unified-status"], "rejected");
+});
+
 // Simulate a body iterator throwing after its last chunk (#37).
 async function streamWithBodyFailure({
   complete = true,
